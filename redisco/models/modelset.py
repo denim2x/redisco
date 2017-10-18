@@ -85,6 +85,9 @@ class ModelSet(Set):
         if self.model_class.exists(id):
             return self._get_item_with_id(id)
 
+    def get(self, **kwargs):
+        return self.filter(**kwargs).first()
+
     def first(self):
         """
         Return the first object of a collections.
@@ -266,7 +269,31 @@ class ModelSet(Set):
         else:
             return self.create(**kwargs)
 
-    #
+    def get_indexed_values(self, attribute_name):
+        """
+        Return indexed values for a model attribute.
+
+        >>> from redisco import models
+        >>> class Foo(models.Model):
+        ...     name = models.Attribute(indexed=True)
+        ...
+        >>> Foo.objects.create(name="Obama")
+        >>> Foo.objects.create(name="Hollande")
+        >>> Foo.objects.create(name="Merkel")
+        >>> Foo.objects.create(name="Merkel")
+        >>> Foo.objects.get_indexed_values("name")
+        ["Hollande", "Merkel", "Obama"]
+        """
+        if attribute_name not in self.model_class._indices:
+            raise AttributeNotIndexed(
+                        "Attribute %s is not indexed in %s class." %
+                        (attribute_name, self.model_class.__name__))
+        wildcard_search_key = "%s:%s:*" % (self.model_class._key, attribute_name)
+        keys = self._db.keys(wildcard_search_key)
+        attribute = self.model_class._attributes[attribute_name]
+        values = [attribute.typecast_for_read(k.split(":")[2]) for k in keys]
+        return values
+
 
     @property
     def db(self):
@@ -309,12 +336,13 @@ class ModelSet(Set):
         """
         indices = []
         for k, v in self._filters.iteritems():
-            index = self._build_key_from_filter_item(k, v)
+            if not isinstance(v, (list, tuple)):
+                v = [v]
+            indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
             if k not in self.model_class._indices:
                 raise AttributeNotIndexed(
                         "Attribute %s is not indexed in %s class." %
                         (k, self.model_class.__name__))
-            indices.append(index)
         new_set_key = "~%s.%s" % ("+".join([self.key] + indices), id(self))
         s.intersection(new_set_key, *[Set(n, db=self.db) for n in indices])
         new_set = Set(new_set_key, db=self.db)

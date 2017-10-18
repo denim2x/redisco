@@ -373,9 +373,9 @@ class Model(object):
         """
         Returns True if the instance is new.
 
-        Newness is based on the presence of the _id attribute.
+        Newness is based on the presence of the _redisco_id attribute.
         """
-        return not hasattr(self, '_id')
+        return not hasattr(self, '_redisco_id')
 
     def incr(self, att, val=1):
         """
@@ -445,27 +445,26 @@ class Model(object):
             h[k] = getattr(self, k)
         for k in self.references.keys():
             h[k] = getattr(self, k)
-        if 'id' not in self.attributes.keys() and not self.is_new():
-            h['id'] = self.id
+        if 'redisco_id' not in self.attributes.keys() and not self.is_new():
+            h['redisco_id'] = self.redisco_id
         return h
 
-
     @property
-    def id(self):
+    def redisco_id(self):
         """Returns the id of the instance.
 
         Raises MissingID if the instance is new.
         """
-        if not hasattr(self, '_id'):
+        if not hasattr(self, '_redisco_id'):
             raise MissingID
-        return self._id
+        return self._redisco_id
 
-    @id.setter
-    def id(self, val):
+    @redisco_id.setter
+    def redisco_id(self, val):
         """
         Setting the id for the object will fetch it from the datastorage.
         """
-        self._id = str(val)
+        self._redisco_id = str(val)
         stored_attrs = self.db.hgetall(self.key())
         attrs = self.attributes.values()
         for att in attrs:
@@ -543,7 +542,7 @@ class Model(object):
 
     def _initialize_id(self):
         """Initializes the id of the instance."""
-        self._id = str(self.db.incr(self._key['id']))
+        self.redisco_id = str(self.db.incr(self._key['redisco_id']))
 
     def _write(self, _new=False):
         """Writes the values of the attributes to the datastore.
@@ -592,7 +591,7 @@ class Model(object):
             values = getattr(self, k)
             if values:
                 if v._redisco_model:
-                    l.extend([item.id for item in values])
+                    l.extend([item.redisco_id for item in values])
                 else:
                     l.extend(values)
         pipeline.execute()
@@ -605,13 +604,14 @@ class Model(object):
         """Adds the id of the object to the set of all objects of the same
         class.
         """
-        Set(self._key['all'], pipeline=pipeline).add(self.id)
+        Set(self._key['all'], pipeline=pipeline).add(self.redisco_id)
 
     def _delete_membership(self, pipeline=None):
         """Removes the id of the object to the set of all objects of the
         same class.
         """
-        Set(self._key['all'], pipeline=pipeline).remove(self.id)
+        Set(self._key['all'], pipeline=pipeline).remove(self.redisco_id)
+
 
     ############
     # INDICES! #
@@ -638,19 +638,19 @@ class Model(object):
             return
         t, index = index
         if t == 'attribute':
-            pipeline.sadd(index, self.id)
+            pipeline.sadd(index, self.redisco_id)
             pipeline.sadd(self.key()['_indices'], index)
         elif t == 'list':
             for i in index:
-                pipeline.sadd(i, self.id)
+                pipeline.sadd(i, self.redisco_id)
                 pipeline.sadd(self.key()['_indices'], i)
         elif t == 'sortedset':
             zindex, index = index
-            pipeline.sadd(index, self.id)
+            pipeline.sadd(index, self.redisco_id)
             pipeline.sadd(self.key()['_indices'], index)
             descriptor = self.attributes[att]
             score = descriptor.typecast_for_storage(getattr(self, att))
-            pipeline.zadd(zindex, self.id, score)
+            pipeline.zadd(zindex, self.redisco_id, score)
             pipeline.sadd(self.key()['_zindices'], zindex)
 
     def _delete_from_indices(self, pipeline):

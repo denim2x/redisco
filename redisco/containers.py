@@ -1,5 +1,7 @@
-# -*- coding: utf-8 -*-
-# doctest: +ELLIPSIS
+"""
+This module contains the container classes to create objects
+that persist directly in a Redis server.
+"""
 
 import collections
 from functools import partial
@@ -14,11 +16,14 @@ def _parse_values(values):
 
 
 class Container(object):
-    """
-    Base class for all containers. This class should not
-    be used and does not provide anything except the ``db``
-    member.
-    :members:
+    """Create a container object saved in Redis.
+
+    Arguments:
+        key -- the Redis key this container is stored at
+        db  -- the Redis client object. Default: None
+
+    When ``db`` is not set, the gets the default connection from
+    ``redisco.connection`` module.
     """
 
     def __init__(self, key, db=None, pipeline=None):
@@ -27,18 +32,7 @@ class Container(object):
         self.pipeline = pipeline
 
     def clear(self):
-        """
-        Remove the container from the redis storage
-
-        >>> s = Set('test')
-        >>> s.add('1')
-        1
-        >>> s.clear()
-        >>> s.members
-        set([])
-
-
-        """
+        """Remove container from Redis database."""
         del self.db[self.key]
 
     def set_expire(self, time=None):
@@ -300,7 +294,17 @@ class Set(Container):
             raise ValueError("Expect a (unicode) string as key")
         key = unicode(key)
 
-        self.db.sinterstore(key, [self.key] + [o.key for o in other_sets])
+        # handle multiple keys
+        if len(other_sets) > 1:
+            inter_keys = set()
+            for rkey in other_sets:
+                inter_keys.update(self.db.sinter(self.key, rkey.key))
+            # add them to into the set
+            self.db.sadd(key, *inter_keys)
+        else:
+            self.db.sinterstore(key, [self.key] + [o.key for o in other_sets])
+
+        # self.db.sinterstore(key, [self.key] + [o.key for o in other_sets])
         return Set(key)
 
     def difference(self, key, *other_sets):

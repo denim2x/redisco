@@ -464,7 +464,7 @@ class ReferenceField(object):
     @property
     def attname(self):
         if self._attname is None:
-            self._attname = self.name + '_id'
+            self._attname = self.name + '_redisco_id'
         return self._attname
 
     @property
