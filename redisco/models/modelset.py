@@ -55,7 +55,7 @@ class ModelSet(Set):
         return len(self._set)
 
     def __contains__(self, val):
-        return val.id in self._set
+        return val.redisco_id in self._set
 
     ##########################################
     # METHODS THAT RETURN A SET OF INSTANCES #
@@ -75,7 +75,7 @@ class ModelSet(Set):
         >>> f = Foo(name="Einstein")
         >>> f.save()
         True
-        >>> Foo.objects.get_by_id(f.id) == f
+        >>> Foo.objects.get_by_id(f.redisco_id) == f
         True
         >>> [f.delete() for f in Foo.objects.all()] # doctest: +ELLIPSIS
         [...]
@@ -243,6 +243,10 @@ class ModelSet(Set):
         Return all elements of the collection.
         """
         return self._clone()
+
+    @property
+    def to_dict(self):
+        return [each.to_dict for each in self.all()]
 
     def get_or_create(self, **kwargs):
         """
@@ -503,7 +507,7 @@ class ModelSet(Set):
         done by assigning the id to the Instance. See ``Model`` class.
         """
         instance = self.model_class()
-        instance.id = str(id)
+        instance.redisco_id = str(id)
         return instance
 
     def _build_key_from_filter_item(self, index, value):

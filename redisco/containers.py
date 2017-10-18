@@ -288,8 +288,6 @@ class Set(Container):
         >>> s2.clear()
         >>> s3.clear()
         """
-
-
         if not isinstance(key, str) and not isinstance(key, unicode):
             raise ValueError("Expect a (unicode) string as key")
         key = unicode(key)

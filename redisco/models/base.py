@@ -45,7 +45,7 @@ def _initialize_referenced(model_class, attribute):
     # this should be a descriptor
     def _related_objects(self):
         return (model_class.objects
-                .filter(**{attribute.attname: self.id}))
+                .filter(**{attribute.attname: self.redisco_id}))
 
     klass = attribute._target_type
     if isinstance(klass, basestring):
@@ -353,13 +353,13 @@ class Model(object):
         >>> f = Foo(name="Einstein", title="Mr.")
         >>> f.save()
         True
-        >>> f.key() == "%s:%s" % (f.__class__.__name__, f.id)
+        >>> f.key() == "%s:%s" % (f.__class__.__name__, f.redisco_id)
         True
         """
         if att is not None:
-            return self._key[self.id][att]
+            return self._key[self.redisco_id][att]
         else:
-            return self._key[self.id]
+            return self._key[self.redisco_id]
 
     def delete(self):
         """Deletes the object from the datastore."""
@@ -435,7 +435,7 @@ class Model(object):
         {'name': 'Einstein', 'title': 'Mr.'}
 
 
-        .. NOTE: the key ``id`` is present *only if* the object has been saved before.
+        .. NOTE: the key ``redisco_id`` is present *only if* the object has been saved before.
 
         """
         h = {}
@@ -445,9 +445,26 @@ class Model(object):
             h[k] = getattr(self, k)
         for k in self.references.keys():
             h[k] = getattr(self, k)
-        if 'redisco_id' not in self.attributes.keys() and not self.is_new():
-            h['redisco_id'] = self.redisco_id
+        # if 'redisco_id' not in self.attributes.keys() and not self.is_new():
+        #     h['redisco_id'] = self.redisco_id
         return h
+
+    # @property
+    # def to_dict(self):
+    #     """dict version of attribute_dict"""
+    #     out = self.attributes_dict
+    #     for each, value in out.items():
+    #         # just do the cleanup for redisco_id keys
+    #         if each.endswith('_redisco_id'):
+    #             out.pop(each)
+    #             continue
+    #         if isinstance(value, Model):
+    #             out[each] = value.to_dict
+    #         elif isinstance(value, unicode):
+    #             out[each] = str(value)
+    #         elif isinstance(value, list):
+    #             out[each] = [d.to_dict if isinstance(d, Model) else d for d in value]
+    #     return out
 
     @property
     def redisco_id(self):
@@ -462,7 +479,7 @@ class Model(object):
     @redisco_id.setter
     def redisco_id(self, val):
         """
-        Setting the id for the object will fetch it from the datastorage.
+        Setting the redisco id for the object will fetch it from the datastorage.
         """
         self._redisco_id = str(val)
         stored_attrs = self.db.hgetall(self.key())
@@ -531,10 +548,10 @@ class Model(object):
     #################
 
     @classmethod
-    def exists(cls, id):
+    def exists(cls, redisco_id):
         """Checks if the model with id exists."""
-        return bool((cls._meta['db'] or redisco.get_client()).exists(cls._key[str(id)]) or
-                    (cls._meta['db'] or redisco.get_client()).sismember(cls._key['all'], str(id)))
+        return bool((cls._meta['db'] or redisco.get_client()).exists(cls._key[str(redisco_id)]) or
+                    (cls._meta['db'] or redisco.get_client()).sismember(cls._key['all'], str(redisco_id)))
 
     ###################
     # Private methods #
@@ -654,15 +671,15 @@ class Model(object):
             pipeline.sadd(self.key()['_zindices'], zindex)
 
     def _delete_from_indices(self, pipeline):
-        """Deletes the object's id from the sets(indices) it has been added
+        """Deletes the object's redisco_id from the sets(indices) it has been added
         to and removes its list of indices (used for housekeeping).
         """
         s = Set(self.key()['_indices'], pipeline=self.db)
         z = Set(self.key()['_zindices'], pipeline=self.db)
         for index in s.members:
-            pipeline.srem(index, self.id)
+            pipeline.srem(index, self.redisco_id)
         for index in z.members:
-            pipeline.zrem(index, self.id)
+            pipeline.zrem(index, self.redisco_id)
         pipeline.delete(s.key)
         pipeline.delete(z.key)
 

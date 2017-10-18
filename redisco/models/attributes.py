@@ -108,11 +108,11 @@ class Attribute(object):
         matches = instance.__class__.objects.filter(**{self.name: encoded})
         if len(matches) > 0:
             try:
-                instance_id = instance.id
+                instance_id = instance.redisco_id
                 no_id = False
             except MissingID:
                 no_id = True
-            if (len(matches) != 1) or no_id or (matches.first().id != instance.id):
+            if (len(matches) != 1) or no_id or (matches.first().redisco_id != instance.redisco_id):
                 return (self.name, 'not unique',)
 
 
@@ -402,7 +402,7 @@ class Collection(object):
             mod = sys.modules[__name__]
 
         klass = getattr(mod, fromlist)
-        return klass.objects.filter(**{instance.__class__.__name__.lower() + '_id': instance.id})
+        return klass.objects.filter(**{instance.__class__.__name__.lower() + '_id': instance.redisco_id})
 
     def __set__(self, instance, value):
         """
@@ -445,7 +445,7 @@ class ReferenceField(object):
         setattr(instance, self.attname, None)
         # Set it to the new value if any.
         if value is not None:
-            setattr(instance, self.attname, value.id)
+            setattr(instance, self.attname, value.redisco_id)
 
     def __get__(self, instance, owner):
         try:
