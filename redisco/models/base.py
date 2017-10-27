@@ -466,6 +466,37 @@ class Model(object):
     #             out[each] = [d.to_dict if isinstance(d, Model) else d for d in value]
     #     return out
 
+    def to_dict(self):
+        out_entity = dict()
+        for field, value in self.attributes_dict.iteritems():
+            if field.endswith('_redisco_id'):
+                continue
+
+            is_model = self.references.get(field, False)
+            is_multi = self.lists.get(field, False)
+
+            if is_model and value is None:
+                continue
+
+            # if isinstance(value, unicode):
+            #     value = str(value)
+            elif isinstance(value, RediscoModel):
+                value = value.to_dict
+            elif isinstance(value, (ModelSet, list)):
+                value = [d.to_dict if isinstance(d, RediscoModel) else d for d in value]
+
+            if is_model or is_multi:
+                dt = field.split('_')
+                field, entity = '_'.join(dt[:-1]), dt[-1]
+
+            out_entity.setdefault(field, [] if is_multi else '')
+            if is_multi:
+                out_entity[field].extend(value)
+            else:
+                out_entity[field] = value
+
+        return out_entity
+
     @property
     def redisco_id(self):
         """Returns the id of the instance.

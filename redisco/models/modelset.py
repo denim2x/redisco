@@ -244,9 +244,8 @@ class ModelSet(Set):
         """
         return self._clone()
 
-    @property
     def to_dict(self):
-        return [each.to_dict for each in self.all()]
+        return [each.to_dict() for each in self.all()]
 
     def get_or_create(self, **kwargs):
         """
@@ -367,9 +366,9 @@ class ModelSet(Set):
             # and build the indices differently
             # XXX: optimise this!!
             if key_operator:
-                if key_operator == 'endswith':
+                if key_operator in ['endswith', 'ends_with']:
                     v = map(lambda val: '*%s' % val, v)
-                elif key_operator == 'startswith':
+                elif key_operator in ['startswith', 'starts_with']:
                     v = map(lambda val: '%s*' % val, v)
                 elif key_operator == 'contains':
                     v = map(lambda val: '*%s*' % val, v)
