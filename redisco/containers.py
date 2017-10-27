@@ -297,8 +297,11 @@ class Set(Container):
             inter_keys = set()
             for rkey in other_sets:
                 inter_keys.update(self.db.sinter(self.key, rkey.key))
-            # add them to into the set
-            self.db.sadd(key, *inter_keys)
+
+            # add them to into the set, if we dont have any intersection, handle it here
+            # as it errors out if we call sadd
+            if inter_keys:
+                self.db.sadd(key, *inter_keys)
         else:
             self.db.sinterstore(key, [self.key] + [o.key for o in other_sets])
 

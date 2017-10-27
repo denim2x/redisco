@@ -402,7 +402,7 @@ class Collection(object):
             mod = sys.modules[__name__]
 
         klass = getattr(mod, fromlist)
-        return klass.objects.filter(**{instance.__class__.__name__.lower() + '_id': instance.redisco_id})
+        return klass.objects.filter(**{instance.__class__.__name__.lower() + '_redisco_id': instance.redisco_id})
 
     def __set__(self, instance, value):
         """

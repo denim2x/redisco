@@ -298,10 +298,16 @@ class ModelSet(Set):
         values = [attribute.typecast_for_read(k.split(":")[2]) for k in keys]
         return values
 
-
     @property
     def db(self):
         return self._db
+
+    def refresh(self):
+        """Refreshesh current model set. Useful if filtered set is expired and want to recreate it"""
+        if hasattr(self, '_cached_set'):
+            delattr(self, '_cached_set')
+
+        return self._set
 
     ###################
     # PRIVATE METHODS #
@@ -338,8 +344,10 @@ class ModelSet(Set):
 
         :return: the new Set
         """
-        indices = []
+        new_set = None
+        _operator = self._filters.pop('_operator', 'and')
         for k, v in self._filters.iteritems():
+            indices = []
             if not isinstance(v, (list, tuple)):
                 v = [v]
             indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
@@ -347,10 +355,21 @@ class ModelSet(Set):
                 raise AttributeNotIndexed(
                         "Attribute %s is not indexed in %s class." %
                         (k, self.model_class.__name__))
-        new_set_key = "~%s.%s" % ("+".join([self.key] + indices), id(self))
-        s.intersection(new_set_key, *[Set(n, db=self.db) for n in indices])
-        new_set = Set(new_set_key, db=self.db)
-        new_set.set_expire()
+            new_set_key = "~%s.%s" % ("+".join([self.key] + indices), id(self))
+
+            # filter operator is set to and, we need to filter withing current set
+            # which has been already filtered
+            if _operator == 'and':
+                if not new_set:
+                    s.intersection(new_set_key, *[Set(n, db=self.db) for n in indices])
+                else:
+                    new_set.intersection(new_set_key, *[Set(n, db=self.db) for n in indices])
+            else:
+                s.intersection(new_set_key, *[Set(n, db=self.db) for n in indices])
+
+            new_set = Set(new_set_key, db=self.db)
+            new_set.set_expire()
+
         return new_set
 
     def _add_set_exclusions(self, s):
