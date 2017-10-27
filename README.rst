@@ -1,4 +1,3 @@
-=======
 Redisco
 =======
 Python Containers and Simple Models for Redis
@@ -25,6 +24,7 @@ Then install redisco.
 
 Documentation
 -------------
+This is a fork of: https://github.com/kiddouk/redisco.git and not production tested.
 The documentation is available at : https://redisco.readthedocs.org
 
 
@@ -154,7 +154,7 @@ back scene.
     class User(models.Model):
         firstname = models.Attribute()
         lastname = models.Attribute()
-        
+
         @property
         def fullname(self):
             return "%s %s" % (self.firstname, self.lastname)
@@ -184,7 +184,7 @@ name in the Model.
     class User(models.Model):
         firstname = models.Attribute()
         lastname = models.Attribute()
-        active = models.BooleanField(default=True)        
+        active = models.BooleanField(default=True)
 
         class History(models.managers.Manager):
             pass
@@ -249,6 +249,17 @@ attribute.
     Person.objects.filter(name='Conchita').first()
     Person.objects.all().order('name')
     Person.objects.filter(fave_colors='Red')
+    Person.objects.filter(fave_colors=['Red', 'Blue'])
+
+Django like filters are available with double underscore operator syntax.
+Complex queries can be performed by passing _operator argument to filter(defaults to 'and').
+
+::
+
+    Person.object.filter(name__endswith='ta', fave_colors='Blue', _operator='and')
+    Person.object.filter(name__endswith='ta', fave_colors='Red', _operator='or')
+    Person.object.filter(name__startswith='C')
+    Person.object.filter(name__contains='hi')
 
 Ranged Queries
 --------------
@@ -392,7 +403,7 @@ That client object will be used instead of the default.
 Unit tests
 ----------
 
-Redisco uses nose for testing. 
+Redisco uses nose for testing.
 
 Install nosetests:
 

@@ -27,3 +27,6 @@ class FieldValidationError(Error):
 
 class BadKeyError(Error):
     pass
+
+class FilterOperatorError(Error):
+    pass

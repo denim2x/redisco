@@ -4,7 +4,7 @@ Handles the queries.
 from .attributes import IntegerField, DateTimeField
 import redisco
 from redisco.containers import SortedSet, Set, List, NonPersistentList
-from .exceptions import AttributeNotIndexed
+from .exceptions import AttributeNotIndexed, FilterOperatorError
 from .attributes import ZINDEXABLE
 
 # Model Set
@@ -348,13 +348,50 @@ class ModelSet(Set):
         _operator = self._filters.pop('_operator', 'and')
         for k, v in self._filters.iteritems():
             indices = []
-            if not isinstance(v, (list, tuple)):
-                v = [v]
-            indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
-            if k not in self.model_class._indices:
+            # check if we have double underscores in key, if it exists
+            # we need to handle it by searching keys rather than indices
+            try:
+                k, key_operator = k.split('__')
+            except ValueError:
+                key_operator = None
+
+            if k not in self.model_class._indices:  #noqa
                 raise AttributeNotIndexed(
                         "Attribute %s is not indexed in %s class." %
                         (k, self.model_class.__name__))
+
+            if not isinstance(v, (list, tuple)):
+                v = [v]
+
+            # check if we have key_operator, if we do need to go long route
+            # and build the indices differently
+            # XXX: optimise this!!
+            if key_operator:
+                if key_operator == 'endswith':
+                    v = map(lambda val: '*%s' % val, v)
+                elif key_operator == 'startswith':
+                    v = map(lambda val: '%s*' % val, v)
+                elif key_operator == 'contains':
+                    v = map(lambda val: '*%s*' % val, v)
+                else:
+                    raise FilterOperatorError('Filter operator must be one of [endswith, startswith, contains]')
+
+                # now do the search, there are two ways of doing this,
+                # 1 - using KEYS
+                # 2 - using SCAN
+                # we will use SCAN for performance reason, though implementation of
+                # KEYS is much easier, though good to know, if you are reading this!
+                _indices = [self._build_key_from_filter_item(k, ev) for ev in map(lambda val: '*%s' % val, v)]
+                for each_search_term in _indices:
+                    scan_index = 0
+                    while True:
+                        scan_index, result = self.db.scan(scan_index, each_search_term, 500)
+                        indices.extend(result)
+                        if not scan_index:
+                            break
+            else:
+                indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
+
             new_set_key = "~%s.%s" % ("+".join([self.key] + indices), id(self))
 
             # filter operator is set to and, we need to filter withing current set
