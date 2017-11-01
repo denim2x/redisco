@@ -65,10 +65,14 @@ class Attribute(object):
     def typecast_for_read(self, value):
         """Typecasts the value for reading from Redis."""
         # The redis client encodes all unicode data to utf-8 by default.
+        if value == '':
+            return None
         return value.decode('utf-8')
 
     def typecast_for_storage(self, value):
         """Typecasts the value for storing to Redis."""
+        if value is None:
+            return u''
         try:
             return unicode(value)
         except UnicodeError:
@@ -205,11 +209,12 @@ class DateTimeField(Attribute):
             return None
 
     def typecast_for_storage(self, value):
+        if value is None:
+            return None
+
         if not isinstance(value, datetime):
             raise TypeError("%s should be datetime object, and not a %s" %
                     (self.name, type(value)))
-        if value is None:
-            return None
         # Are we timezone aware ? If no, make it TimeZone Local
         if value.tzinfo is None:
            value = value.replace(tzinfo=tzlocal())
@@ -241,11 +246,12 @@ class DateField(Attribute):
             return None
 
     def typecast_for_storage(self, value):
+        if value is None:
+            return None
+
         if not isinstance(value, date):
             raise TypeError("%s should be date object, and not a %s" %
                     (self.name, type(value)))
-        if value is None:
-            return None
         return "%d" % float(timegm(value.timetuple()))
 
     def value_type(self):
@@ -281,12 +287,12 @@ class TimeDeltaField(Attribute):
             return None
 
     def typecast_for_storage(self, value):
-        if not isinstance(value, timedelta):
-            raise TypeError("%s should be timedelta object, and not a %s" %
-                    (self.name, type(value)))
         if value is None:
             return None
 
+        if not isinstance(value, timedelta):
+            raise TypeError("%s should be timedelta object, and not a %s" %
+                    (self.name, type(value)))
         return "%d" % self._total_seconds(value)
 
     def value_type(self):

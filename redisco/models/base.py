@@ -3,6 +3,7 @@ from datetime import datetime, date
 from dateutil.tz import tzutc
 import redisco
 from redisco.containers import Set, List, SortedSet, NonPersistentList
+from .modelset import ModelSet
 from .attributes import *
 from .key import Key
 from .managers import ManagerDescriptor, Manager
@@ -449,23 +450,6 @@ class Model(object):
         #     h['redisco_id'] = self.redisco_id
         return h
 
-    # @property
-    # def to_dict(self):
-    #     """dict version of attribute_dict"""
-    #     out = self.attributes_dict
-    #     for each, value in out.items():
-    #         # just do the cleanup for redisco_id keys
-    #         if each.endswith('_redisco_id'):
-    #             out.pop(each)
-    #             continue
-    #         if isinstance(value, Model):
-    #             out[each] = value.to_dict
-    #         elif isinstance(value, unicode):
-    #             out[each] = str(value)
-    #         elif isinstance(value, list):
-    #             out[each] = [d.to_dict if isinstance(d, Model) else d for d in value]
-    #     return out
-
     def to_dict(self):
         out_entity = dict()
         for field, value in self.attributes_dict.iteritems():
@@ -475,15 +459,10 @@ class Model(object):
             is_model = self.references.get(field, False)
             is_multi = self.lists.get(field, False)
 
-            if is_model and value is None:
-                continue
-
-            # if isinstance(value, unicode):
-            #     value = str(value)
-            elif isinstance(value, RediscoModel):
-                value = value.to_dict
+            if isinstance(value, Model):
+                value = value.to_dict()
             elif isinstance(value, (ModelSet, list)):
-                value = [d.to_dict if isinstance(d, RediscoModel) else d for d in value]
+                value = [d.to_dict() if isinstance(d, Model) else d for d in value]
 
             if is_model or is_multi:
                 dt = field.split('_')
@@ -615,8 +594,8 @@ class Model(object):
                 if v.auto_now_add and _new:
                     setattr(self, k, datetime.now(tz=tzutc()))
             for_storage = getattr(self, k)
-            if for_storage is not None:
-                h[k] = v.typecast_for_storage(for_storage)
+            h[k] = v.typecast_for_storage(for_storage)
+
         # indices
         for index in self.indices:
             if index not in self.lists and index not in self.attributes:
@@ -723,8 +702,14 @@ class Model(object):
             value = getattr(self, att)
             if callable(value):
                 value = value()
+        # if, we still have, we need to forcefully create a null
+        # object for index to work
         if value is None:
-            return None
+            # return None
+            try:
+                value = self.attributes[att].value_type()()
+            except:
+                return None
         if att not in self.lists:
             return self._get_index_key_for_non_list_attr(att, value)
         else:

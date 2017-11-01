@@ -366,9 +366,9 @@ class ModelSet(Set):
             # and build the indices differently
             # XXX: optimise this!!
             if key_operator:
-                if key_operator in ['endswith', 'ends_with']:
+                if key_operator == 'endswith':
                     v = map(lambda val: '*%s' % val, v)
-                elif key_operator in ['startswith', 'starts_with']:
+                elif key_operator == 'startswith':
                     v = map(lambda val: '%s*' % val, v)
                 elif key_operator == 'contains':
                     v = map(lambda val: '*%s*' % val, v)
@@ -380,14 +380,9 @@ class ModelSet(Set):
                 # 2 - using SCAN
                 # we will use SCAN for performance reason, though implementation of
                 # KEYS is much easier, though good to know, if you are reading this!
-                _indices = [self._build_key_from_filter_item(k, ev) for ev in map(lambda val: '*%s' % val, v)]
-                for each_search_term in _indices:
-                    scan_index = 0
-                    while True:
-                        scan_index, result = self.db.scan(scan_index, each_search_term, 500)
-                        indices.extend(result)
-                        if not scan_index:
-                            break
+                _indices = [self._build_key_from_filter_item(k, ev) for ev in v]
+                for search_term in _indices:
+                    indices.extend(list(self.db.scan_iter(search_term, 500)))
             else:
                 indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
 
