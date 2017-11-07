@@ -336,7 +336,25 @@ class Set(Container):
             raise ValueError("Expect a (unicode) string as key")
         key = unicode(key)
 
-        self.db.sdiffstore(key, [self.key] + [o.key for o in other_sets])
+        # handle multiple keys
+        if len(other_sets) > 1:
+            diff_keys = set()
+            for rkey in other_sets:
+                # as this is a diff, we want to update the first set in diff_keys
+                # for any further key sets, we want to create an intersect with
+                # existing diff_key to narrow down the set
+                if not diff_keys:
+                    diff_keys.update(self.db.sdiff(self.key, rkey.key))
+                else:
+                    diff_keys = diff_keys.intersection(self.db.sdiff(self.key, rkey.key))
+
+            # add them to into the set, if we dont have any intersection, handle it here
+            # as it errors out if we call sadd
+            if diff_keys:
+                self.db.sadd(key, *diff_keys)
+        else:
+            self.db.sdiffstore(key, [self.key] + [o.key for o in other_sets])
+
         return Set(key)
 
     def update(self, *other_sets):
