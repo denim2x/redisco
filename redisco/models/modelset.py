@@ -453,7 +453,7 @@ class ModelSet(Set):
                 # KEYS is much easier, though good to know, if you are reading this!
                 _indices = [self._build_key_from_filter_item(k, ev) for ev in v]
                 for search_term in _indices:
-                    indices.extend(list(self.db.scan_iter(search_term, 500)))
+                    indices.extend([e.decode('utf-8') for e in self.db.scan_iter(search_term, 500)])
             else:
                 indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
 
@@ -632,7 +632,7 @@ class ModelSet(Set):
         desc = self.model_class._attributes.get(index)
         if desc:
             value = desc.typecast_for_storage(value)
-        return self.model_class._key[index][value]
+        return self.model_class._key[index][value].encode('utf-8')
 
     def _clone(self):
         """

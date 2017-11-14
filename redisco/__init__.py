@@ -5,9 +5,9 @@ try:
 except ImportError:
     import redis
     default_connection_settings = {
-        'host': 'localhost',
+        'host': '10.100.16.208',
         'port': 6379,
-        'db': 0
+        'db': 0,
     }
 
 
@@ -38,6 +38,6 @@ def get_client():
 
 client = Client()
 connection = client.redis()
-default_expire_time = 60
+default_expire_time = 600
 
 __all__ = ['connection_setup', 'get_client']

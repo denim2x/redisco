@@ -58,6 +58,8 @@ class Attribute(object):
                 default = self.default
             self.__set__(instance, default)
             return default
+        except TypeError:
+            print 'Stop here..'
 
     def __set__(self, instance, value):
         setattr(instance, '_' + self.name, value)
