@@ -212,6 +212,7 @@ class ModelBase(type):
     def __init__(cls, name, bases, attrs):
         super(ModelBase, cls).__init__(name, bases, attrs)
         global _deferred_refs
+        attrs['redisco_id'] = Attribute()
         cls._meta = ModelOptions(attrs.pop('Meta', None))
         deferred = _initialize_references(cls, name, bases, attrs)
         _deferred_refs.extend(deferred)
@@ -266,6 +267,8 @@ class Model(object):
         """
         self._errors = []
         for field in self.fields:
+            if field.name == 'redisco_id':
+                continue
             try:
                 field.validate(self)
             except FieldValidationError as e:
@@ -441,7 +444,11 @@ class Model(object):
         """
         h = {}
         for k in self.attributes.keys():
+            if k == 'redisco_id':
+                continue
+
             h[k] = getattr(self, k)
+
         for k in self.lists.keys():
             h[k] = getattr(self, k)
         for k in self.references.keys():
@@ -483,7 +490,9 @@ class Model(object):
         Raises MissingID if the instance is new.
         """
         if not hasattr(self, '_redisco_id'):
+            # self._initialize_id()
             raise MissingID
+
         return self._redisco_id
 
     @redisco_id.setter
