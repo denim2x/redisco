@@ -292,20 +292,13 @@ class Set(Container):
             raise ValueError("Expect a (unicode) string as key")
         key = unicode(key)
 
-        # handle multiple keys
-        if len(other_sets) > 1:
-            inter_keys = set()
-            for rkey in other_sets:
-                inter_keys.update(self.db.sinter(self.key, rkey.key))
+        if not other_sets:
+            return Set(key)
 
-            # add them to into the set, if we dont have any intersection, handle it here
-            # as it errors out if we call sadd
-            if inter_keys:
-                self.db.sadd(key, *inter_keys)
-        else:
-            self.db.sinterstore(key, [self.key] + [o.key for o in other_sets])
-
-        # self.db.sinterstore(key, [self.key] + [o.key for o in other_sets])
+        union_key = '~' + key
+        self.db.sunionstore(union_key, *[o.key for o in other_sets])
+        self.db.sinterstore(key, [self.key, union_key])
+        self.db.delete(union_key)
         return Set(key)
 
     def difference(self, key, *other_sets):
@@ -336,7 +329,13 @@ class Set(Container):
             raise ValueError("Expect a (unicode) string as key")
         key = unicode(key)
 
-        self.db.sdiffstore(key, [self.key] + [o.key for o in other_sets])
+        if not other_sets:
+            return Set(key)
+
+        union_key = '~' + key
+        self.db.sunionstore(union_key, *[o.key for o in other_sets])
+        self.db.sdiffstore(key, [self.key, union_key])
+        self.db.delete(union_key)
         return Set(key)
 
     def update(self, *other_sets):

@@ -12,7 +12,7 @@ from .exceptions import FieldValidationError, MissingID
 
 __all__ = ['Attribute', 'CharField', 'ListField', 'DateTimeField',
         'DateField', 'TimeDeltaField', 'ReferenceField', 'Collection',
-        'IntegerField', 'FloatField', 'BooleanField', 'Counter',
+        'IntegerField', 'FloatField', 'BooleanField', 'Counter', 'TextDateField',
         'ZINDEXABLE']
 
 
@@ -58,6 +58,8 @@ class Attribute(object):
                 default = self.default
             self.__set__(instance, default)
             return default
+        except TypeError:
+            print 'Stop here..'
 
     def __set__(self, instance, value):
         setattr(instance, '_' + self.name, value)
@@ -259,6 +261,22 @@ class DateField(Attribute):
 
     def acceptable_types(self):
         return self.value_type()
+
+
+class TextDateField(DateField):
+
+    def typecast_for_read(self, value):
+        try:
+            # We load as if it is UTC time
+            dt = date.fromtimestamp(float(value)).strftime('%Y-%m-%d')
+            # And assign (ie: not convert) the UTC TimeZone
+            return dt
+        except TypeError:
+            return None
+        except ValueError:
+            return None
+
+
 
 class TimeDeltaField(Attribute):
 
@@ -517,4 +535,4 @@ class Counter(IntegerField):
             return 0
 
 
-ZINDEXABLE = (IntegerField, DateTimeField, DateField, FloatField, Counter)
+ZINDEXABLE = (IntegerField, DateTimeField, DateField, FloatField, Counter, TextDateField)
