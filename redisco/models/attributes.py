@@ -483,6 +483,9 @@ class ReferenceField(object):
             return self.default
 
     def value_type(self):
+        from redisco.models import base
+        if isinstance(self._target_type, basestring):
+            return base.MODELS[self._target_type]
         return self._target_type
 
     @property

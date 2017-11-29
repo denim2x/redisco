@@ -389,7 +389,10 @@ class ModelSet(Set):
             try:
                 new_set_key = "~%s.%s" % ("+".join([self.key] + indices), id(self))
             except UnicodeDecodeError:
-                indices = [indx.encode('utf-8') for indx in indices]
+                try:
+                    indices = [indx.encode('utf-8') for indx in indices]
+                except UnicodeDecodeError:
+                    indices = [indx.decode('utf-8') for indx in indices]
                 new_set_key = u"~%s.%s" % ("+".join([self.key] + indices), id(self))
 
             # filter operator is set to and, we need to filter withing current set

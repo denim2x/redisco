@@ -14,6 +14,9 @@ __all__ = ['Model', 'from_key']
 
 ZINDEXABLE = (IntegerField, DateTimeField, DateField, FloatField)
 
+MODELS = dict()
+
+
 ##############################
 # Model Class Initialization #
 ##############################
@@ -229,6 +232,11 @@ class ModelBase(type):
                 att._target_type = cls
                 _initialize_referenced(model_class, att)
 
+        # extra fields which can be appended while .to_dict()
+        cls._exports = list()
+
+        MODELS[cls.__name__] = cls
+
     def __getitem__(self, id):
         return self.objects.get_by_id(id)
 
@@ -422,7 +430,6 @@ class Model(object):
         """
         self.incr(att, -1 * val)
 
-
     @property
     def attributes_dict(self):
         """
@@ -444,17 +451,18 @@ class Model(object):
         """
         h = {}
         for k in self.attributes.keys():
-            if k == 'redisco_id':
+            if k.endswith('redisco_id'):
                 continue
-
             h[k] = getattr(self, k)
 
         for k in self.lists.keys():
             h[k] = getattr(self, k)
         for k in self.references.keys():
             h[k] = getattr(self, k)
-        # if 'redisco_id' not in self.attributes.keys() and not self.is_new():
-        #     h['redisco_id'] = self.redisco_id
+        # h.update({k: getattr(self, k) for k in self.attributes.keys()})
+        # h.update({k: getattr(self, k) for k in self.lists.keys()})
+        # h.update({k: getattr(self, k) for k in self.references.keys()})
+
         return h
 
     def to_dict(self):
@@ -467,7 +475,16 @@ class Model(object):
             is_multi = self.lists.get(field, False)
 
             if isinstance(value, Model):
-                value = value.to_dict()
+                if value.__class__.__name__ == self.__class__.__name__:
+                    ovalue = dict()
+                    for k in value.attributes.keys():
+                        if k.endswith('redisco_id'):
+                            continue
+                        ovalue[k] = getattr(value, k)
+                    value = ovalue
+                else:
+                    value = value.to_dict()
+
             elif isinstance(value, (ModelSet, list)):
                 value = [d.to_dict() if isinstance(d, Model) else d for d in value]
 
@@ -479,7 +496,22 @@ class Model(object):
             if is_multi:
                 out_entity[field].extend(value)
             else:
-                out_entity[field] = value
+                if not out_entity.get(field):
+                    out_entity[field] = value
+
+        for k in self._exports:
+            out_entity[k] = []
+            value = getattr(self, k)
+            if isinstance(value, (list, ModelSet)):
+                for each in value:
+                    if each.__class__.__name__ == self.__class__.__name__:
+                        d = each.attributes_dict
+                        for each_d in d.keys():
+                            if isinstance(d[each_d], Model):
+                                d.pop(each_d)
+                        out_entity[k].append(d)
+                    if isinstance(value, Model):
+                        out_entity[k].append(value.to_dict())
 
         return out_entity
 
@@ -752,6 +784,9 @@ class Model(object):
     ##################
     # Python methods #
     ##################
+
+    def __getitem__(self, item):
+        return getattr(self, item)
 
     def __hash__(self):
         return hash(self.key())
