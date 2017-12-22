@@ -373,9 +373,29 @@ class Model(object):
         else:
             return self._key[self.redisco_id]
 
+    @property
+    def master_db(self):
+        """Returns master redis client, if Sentinel is enabled, else returns db"""
+        client = self.db
+        if isinstance(client, redisco.Sentinel):
+            return client.master_for(redisco.client.sentinel_name,
+                                     socket_timeout=redisco.SENTINEL_SOCKET_TIMEOUT)
+        else:
+            return client
+
+    @property
+    def slave_db(self):
+        """Returns slave redis client, if Sentinel is enabled, else returns db"""
+        client = self.db
+        if isinstance(client, redisco.Sentinel):
+            return client.slave_for(redisco.client.sentinel_name,
+                                    socket_timeout=redisco.SENTINEL_SOCKET_TIMEOUT)
+        else:
+            return client
+
     def delete(self):
         """Deletes the object from the datastore."""
-        pipeline = self.db.pipeline()
+        pipeline = self.master_db.pipeline()
         self._delete_from_indices(pipeline)
         self._delete_membership(pipeline)
         pipeline.delete(self.key())
@@ -407,7 +427,7 @@ class Model(object):
         """
         if att not in self.counters:
             raise ValueError("%s is not a counter.")
-        self.db.hincrby(self.key(), att, val)
+        self.master_db.hincrby(self.key(), att, val)
 
     def decr(self, att, val=1):
         """
@@ -533,7 +553,7 @@ class Model(object):
         Setting the redisco id for the object will fetch it from the datastorage.
         """
         self._redisco_id = str(val)
-        stored_attrs = self.db.hgetall(self.key())
+        stored_attrs = self.slave_db.hgetall(self.key())
         attrs = self.attributes.values()
         for att in attrs:
             if att.name in stored_attrs and not isinstance(att, Counter):
@@ -610,7 +630,7 @@ class Model(object):
 
     def _initialize_id(self):
         """Initializes the id of the instance."""
-        self.redisco_id = str(self.db.incr(self._key['redisco_id']))
+        self.redisco_id = str(self.master_db.incr(self._key['redisco_id']))
 
     def _write(self, _new=False):
         """Writes the values of the attributes to the datastore.
@@ -618,7 +638,7 @@ class Model(object):
         This method also creates the indices and saves the lists
         associated to the object.
         """
-        pipeline = self.db.pipeline()
+        pipeline = self.master_db.pipeline()
         self._create_membership(pipeline)
         self._update_indices(pipeline)
         h = {}
@@ -725,8 +745,8 @@ class Model(object):
         """Deletes the object's redisco_id from the sets(indices) it has been added
         to and removes its list of indices (used for housekeeping).
         """
-        s = Set(self.key()['_indices'], pipeline=self.db)
-        z = Set(self.key()['_zindices'], pipeline=self.db)
+        s = Set(self.key()['_indices'], pipeline=self.master_db)
+        z = Set(self.key()['_zindices'], pipeline=self.master_db)
         for index in s.members:
             pipeline.srem(index, self.redisco_id)
         for index in z.members:
@@ -848,11 +868,11 @@ class Mutex(object):
     def lock(self):
         o = self.instance
         _lock_key = o.key('_lock')
-        with o.db.pipeline() as pipe:
+        with o.master_db.pipeline() as pipe:
             while True:
                 try:
                     pipe.watch(_lock_key)
-                    if o.db.exists(_lock_key) and not self.lock_has_expired(o.db.get(_lock_key)):
+                    if o.master_db.exists(_lock_key) and not self.lock_has_expired(o.db.get(_lock_key)):
                         continue
 
                     pipe.multi()
@@ -869,7 +889,7 @@ class Mutex(object):
         return float(lock) < time.time()
 
     def unlock(self):
-        self.instance.db.delete(self.instance.key('_lock'))
+        self.instance.master_db.delete(self.instance.key('_lock'))
 
     @property
     def lock_timeout(self):

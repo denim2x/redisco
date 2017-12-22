@@ -5,6 +5,7 @@ that persist directly in a Redis server.
 
 import collections
 from functools import partial
+import redisco
 from . import default_expire_time
 
 
@@ -33,7 +34,7 @@ class Container(object):
 
     def clear(self):
         """Remove container from Redis database."""
-        del self.db[self.key]
+        del self.master_db[self.key]
 
     def set_expire(self, time=None):
         """
@@ -55,7 +56,7 @@ class Container(object):
         """
         if time is None:
             time = default_expire_time
-        self.db.expire(self.key, time)
+        self.master_db.expire(self.key, time)
 
     @property
     def db(self):
@@ -69,6 +70,26 @@ class Container(object):
             from redisco import connection
             self.db_cache = connection
             return self.db_cache
+
+    @property
+    def master_db(self):
+        """Returns master redis client, if Sentinel is enabled, else returns db"""
+        client = self.db
+        if isinstance(client, redisco.Sentinel):
+            return client.master_for(redisco.client.sentinel_name,
+                                     socket_timeout=redisco.SENTINEL_SOCKET_TIMEOUT)
+        else:
+            return client
+
+    @property
+    def slave_db(self):
+        """Returns slave redis client, if Sentinel is enabled, else returns db"""
+        client = self.db
+        if isinstance(client, redisco.Sentinel):
+            return client.slave_for(redisco.client.sentinel_name,
+                                    socket_timeout=redisco.SENTINEL_SOCKET_TIMEOUT)
+        else:
+            return client
 
 
 class Set(Container):
@@ -101,7 +122,7 @@ class Set(Container):
         >>> s.clear()
 
         """
-        return self.db.sadd(self.key, *_parse_values(values))
+        return self.master_db.sadd(self.key, *_parse_values(values))
 
     def srem(self, *values):
         """
@@ -118,7 +139,7 @@ class Set(Container):
         >>> s.clear()
 
         """
-        return self.db.srem(self.key, *_parse_values(values))
+        return self.master_db.srem(self.key, *_parse_values(values))
 
     def spop(self):
         """
@@ -135,7 +156,7 @@ class Set(Container):
         set([])
 
         """
-        return self.db.spop(self.key)
+        return self.master_db.spop(self.key)
 
     #def __repr__(self):
     #    return "<%s '%s' %s>" % (self.__class__.__name__, self.key,
@@ -159,7 +180,7 @@ class Set(Container):
         >>> s1.clear()
         >>> s2.clear()
         """
-        return not bool(self.db.sinter([self.key, other.key]))
+        return not bool(self.slave_db.sinter([self.key, other.key]))
 
     def issubset(self, other_set):
         """
@@ -182,7 +203,7 @@ class Set(Container):
         return self <= other_set
 
     def __le__(self, other_set):
-        return self.db.sinter([self.key, other_set.key]) == self.all()
+        return self.slave_db.sinter([self.key, other_set.key]) == self.all()
 
     def __lt__(self, other_set):
         """Test whether the set is a true subset of other."""
@@ -227,7 +248,7 @@ class Set(Container):
 
     def __ge__(self, other_set):
         """Test whether every element in other is in the set."""
-        return self.db.sinter([self.key, other_set.key]) == other_set.all()
+        return self.slave_db.sinter([self.key, other_set.key]) == other_set.all()
 
     def __gt__(self, other_set):
         """Test whether the set is a true superset of other."""
@@ -262,7 +283,7 @@ class Set(Container):
             raise ValueError("Expect a (unicode) string as key")
         key = unicode(key)
 
-        self.db.sunionstore(key, [self.key] + [o.key for o in other_sets])
+        self.master_db.sunionstore(key, [self.key] + [o.key for o in other_sets])
         return Set(key)
 
     def intersection(self, key, *other_sets):
@@ -296,9 +317,9 @@ class Set(Container):
             return Set(key)
 
         union_key = '~' + key
-        self.db.sunionstore(union_key, *[o.key for o in other_sets])
-        self.db.sinterstore(key, [self.key, union_key])
-        self.db.delete(union_key)
+        self.master_db.sunionstore(union_key, *[o.key for o in other_sets])
+        self.master_db.sinterstore(key, [self.key, union_key])
+        self.master_db.delete(union_key)
         return Set(key)
 
     def difference(self, key, *other_sets):
@@ -333,9 +354,9 @@ class Set(Container):
             return Set(key)
 
         union_key = '~' + key
-        self.db.sunionstore(union_key, *[o.key for o in other_sets])
-        self.db.sdiffstore(key, [self.key, union_key])
-        self.db.delete(union_key)
+        self.master_db.sunionstore(union_key, *[o.key for o in other_sets])
+        self.master_db.sdiffstore(key, [self.key, union_key])
+        self.master_db.delete(union_key)
         return Set(key)
 
     def update(self, *other_sets):
@@ -344,10 +365,10 @@ class Set(Container):
         :param other_sets: list of ``Set``
         :rtype: None
         """
-        self.db.sunionstore(self.key, [self.key] + [o.key for o in other_sets])
+        self.master_db.sunionstore(self.key, [self.key] + [o.key for o in other_sets])
 
     def __ior__(self, other_set):
-        self.db.sunionstore(self.key, [self.key, other_set.key])
+        self.master_db.sunionstore(self.key, [self.key, other_set.key])
         return self
 
     def intersection_update(self, *other_sets):
@@ -357,10 +378,10 @@ class Set(Container):
         :param other_sets: list of ``Set``
         :rtype: None
         """
-        self.db.sinterstore(self.key, [o.key for o in [self.key] + other_sets])
+        self.master_db.sinterstore(self.key, [o.key for o in [self.key] + other_sets])
 
     def __iand__(self, other_set):
-        self.db.sinterstore(self.key, [self.key, other_set.key])
+        self.master_db.sinterstore(self.key, [self.key, other_set.key])
         return self
 
     def difference_update(self, *other_sets):
@@ -370,14 +391,14 @@ class Set(Container):
         :param other_sets: list of ``Set``
         :rtype: None
         """
-        self.db.sdiffstore(self.key, [o.key for o in [self.key] + other_sets])
+        self.master_db.sdiffstore(self.key, [o.key for o in [self.key] + other_sets])
 
     def __isub__(self, other_set):
-        self.db.sdiffstore(self.key, [self.key, other_set.key])
+        self.master_db.sdiffstore(self.key, [self.key, other_set.key])
         return self
 
     def all(self):
-        return self.db.smembers(self.key)
+        return self.slave_db.smembers(self.key)
 
     members = property(all)
     """
@@ -406,7 +427,7 @@ class Set(Container):
         .. NOTE::
             This function return an actual ``set`` object (from python) and not a ``Set``. See func:``intersection``.
         """
-        return self.db.sinter([self.key] + [s.key for s in other_sets])
+        return self.slave_db.sinter([self.key] + [s.key for s in other_sets])
 
     def sunion(self, *other_sets):
         """
@@ -415,7 +436,7 @@ class Set(Container):
         .. NOTE::
             This function return an actual ``set`` object (from python) and not a ``Set``.
         """
-        return self.db.sunion([self.key] + [s.key for s in other_sets])
+        return self.slave_db.sunion([self.key] + [s.key for s in other_sets])
 
     def sdiff(self, *other_sets):
         """
@@ -426,7 +447,7 @@ class Set(Container):
             See function difference.
 
         """
-        return self.db.sdiff([self.key] + [s.key for s in other_sets])
+        return self.slave_db.sdiff([self.key] + [s.key for s in other_sets])
 
     def scard(self):
         """
@@ -435,14 +456,14 @@ class Set(Container):
         :rtype: String containing the cardinality.
 
         """
-        return self.db.scard(self.key)
+        return self.slave_db.scard(self.key)
 
     def sismember(self, value):
         """
         Return ``True`` if the provided value is in the ``Set``.
 
         """
-        return self.db.sismember(self.key, value)
+        return self.slave_db.sismember(self.key, value)
 
     def srandmember(self):
         """
@@ -455,7 +476,7 @@ class Set(Container):
         '...'
         >>> # 'a', 'b' or 'c'
         """
-        return self.db.srandmember(self.key)
+        return self.slave_db.srandmember(self.key)
 
     add = sadd
     """see sadd"""
@@ -484,7 +505,7 @@ class List(Container):
         """
         Returns the length of the list.
         """
-        return self.db.llen(self.key)
+        return self.slave_db.llen(self.key)
 
     __len__ = llen
 
@@ -515,7 +536,7 @@ class List(Container):
         >>> l.clear()
 
         """
-        return self.db.lrange(self.key, start, stop)
+        return self.slave_db.lrange(self.key, start, stop)
 
     def lpush(self, *values):
         """
@@ -529,7 +550,7 @@ class List(Container):
         2L
         >>> l.clear()
         """
-        return self.db.lpush(self.key, *_parse_values(values))
+        return self.master_db.lpush(self.key, *_parse_values(values))
 
     def rpush(self, *values):
         """
@@ -548,7 +569,7 @@ class List(Container):
         >>> l.clear()
         """
 
-        return self.db.rpush(self.key, *_parse_values(values))
+        return self.master_db.rpush(self.key, *_parse_values(values))
 
     def extend(self, iterable):
         """
@@ -573,7 +594,7 @@ class List(Container):
         :return: the popped value.
 
         """
-        return self.db.lpop(self.key)
+        return self.master_db.lpop(self.key)
 
     def rpop(self):
         """
@@ -581,7 +602,7 @@ class List(Container):
 
         :return: the popped value.
         """
-        return self.db.rpop(self.key)
+        return self.master_db.rpop(self.key)
 
     def rpoplpush(self, key):
         """
@@ -603,7 +624,7 @@ class List(Container):
         >>> l2.clear()
 
         """
-        return self.db.rpoplpush(self.key, key)
+        return self.master_db.rpoplpush(self.key, key)
 
     def lrem(self, value, num=1):
         """
@@ -611,7 +632,7 @@ class List(Container):
 
         :return: 1 if the value has been removed, 0 otherwise
         """
-        return self.db.lrem(self.key, value, num)
+        return self.master_db.lrem(self.key, value, num)
 
     def reverse(self):
         """
@@ -641,7 +662,7 @@ class List(Container):
 
         :return: None
         """
-        return self.db.ltrim(self.key, start, end)
+        return self.master_db.ltrim(self.key, start, end)
 
     def lindex(self, idx):
         """
@@ -650,7 +671,7 @@ class List(Container):
         :param idx: the index to fetch the value.
         :return: the value or None if out of range.
         """
-        return self.db.lindex(self.key, idx)
+        return self.master_db.lindex(self.key, idx)
 
     def lset(self, idx, value=0):
         """
@@ -668,7 +689,7 @@ class List(Container):
         >>> l.clear()
 
         """
-        return self.db.lset(self.key, idx, value)
+        return self.master_db.lset(self.key, idx, value)
 
     def __iter__(self):
         return self.members.__iter__()
@@ -941,7 +962,7 @@ class SortedSet(Container):
             for member, score in members.items():
                 _members += [member, score]
 
-        return self.db.zadd(self.key, *_members)
+        return self.master_db.zadd(self.key, *_members)
 
     def zrem(self, *values):
         """
@@ -959,7 +980,7 @@ class SortedSet(Container):
         []
         >>> s.clear()
         """
-        return self.db.zrem(self.key, *_parse_values(values))
+        return self.master_db.zrem(self.key, *_parse_values(values))
 
     def zincrby(self, att, value=1):
         """
@@ -976,7 +997,7 @@ class SortedSet(Container):
         20.0
         >>> s.clear()
         """
-        return self.db.zincrby(self.key, att, value)
+        return self.master_db.zincrby(self.key, att, value)
 
     def zrevrank(self, member):
         """
@@ -991,7 +1012,7 @@ class SortedSet(Container):
         1
         >>> s.clear()
         """
-        return self.db.zrevrank(self.key, member)
+        return self.slave_db.zrevrank(self.key, member)
 
     def zrange(self, start, stop, withscores=False):
         """
@@ -1014,7 +1035,7 @@ class SortedSet(Container):
         [('b', 20.0), ('c', 30.0)]
         >>> s.clear()
         """
-        return self.db.zrange(self.key, start, stop, withscores=withscores)
+        return self.slave_db.zrange(self.key, start, stop, withscores=withscores)
 
     def zrevrange(self, start, end, **kwargs):
         """
@@ -1032,7 +1053,7 @@ class SortedSet(Container):
         ['b', 'a']
         >>> s.clear()
         """
-        return self.db.zrevrange(self.key, start, end, **kwargs)
+        return self.slave_db.zrevrange(self.key, start, end, **kwargs)
 
     def zrangebyscore(self, min, max, **kwargs):
         """
@@ -1049,7 +1070,7 @@ class SortedSet(Container):
         ['b', 'c']
         >>> s.clear()
         """
-        return self.db.zrangebyscore(self.key, min, max, **kwargs)
+        return self.slave_db.zrangebyscore(self.key, min, max, **kwargs)
 
     def zrevrangebyscore(self, max, min, **kwargs):
         """
@@ -1066,7 +1087,7 @@ class SortedSet(Container):
         ['b']
         >>> s.clear()
         """
-        return self.db.zrevrangebyscore(self.key, max, min, **kwargs)
+        return self.slave_db.zrevrangebyscore(self.key, max, min, **kwargs)
 
     def zcard(self):
         """
@@ -1083,7 +1104,7 @@ class SortedSet(Container):
         3
         >>> s.clear()
         """
-        return self.db.zcard(self.key)
+        return self.slave_db.zcard(self.key)
 
     def zscore(self, elem):
         """
@@ -1096,7 +1117,7 @@ class SortedSet(Container):
         10.0
         >>> s.clear()
         """
-        return self.db.zscore(self.key, elem)
+        return self.slave_db.zscore(self.key, elem)
 
     def zremrangebyrank(self, start, stop):
         """
@@ -1118,7 +1139,7 @@ class SortedSet(Container):
         ['a']
         >>> s.clear()
         """
-        return self.db.zremrangebyrank(self.key, start, stop)
+        return self.master_db.zremrangebyrank(self.key, start, stop)
 
     def zremrangebyscore(self, min_value, max_value):
         """
@@ -1141,7 +1162,7 @@ class SortedSet(Container):
         >>> s.clear()
         """
 
-        return self.db.zremrangebyscore(self.key, min_value, max_value)
+        return self.master_db.zremrangebyscore(self.key, min_value, max_value)
 
     def zrank(self, elem):
         """
@@ -1154,7 +1175,7 @@ class SortedSet(Container):
         0
         >>> s.clear()
         """
-        return self.db.zrank(self.key, elem)
+        return self.slave_db.zrank(self.key, elem)
 
     def eq(self, value):
         """
@@ -1203,7 +1224,7 @@ class Hash(Container, collections.MutableMapping):
         """
         Returns the number of elements in the Hash.
         """
-        return self.db.hlen(self.key)
+        return self.slave_db.hlen(self.key)
 
     def hset(self, member, value):
         """
@@ -1218,7 +1239,7 @@ class Hash(Container, collections.MutableMapping):
         1L
         >>> h.clear()
         """
-        return self.db.hset(self.key, member, value)
+        return self.master_db.hset(self.key, member, value)
 
     def hdel(self, *members):
         """
@@ -1234,13 +1255,13 @@ class Hash(Container, collections.MutableMapping):
         1
         >>> h.clear()
         """
-        return self.db.hdel(self.key, *_parse_values(members))
+        return self.master_db.hdel(self.key, *_parse_values(members))
 
     def hkeys(self):
         """
         Returns all fields name in the Hash
         """
-        return self.db.hkeys(self.key)
+        return self.slave_db.hkeys(self.key)
 
     def hgetall(self):
         """
@@ -1248,7 +1269,7 @@ class Hash(Container, collections.MutableMapping):
 
         :rtype: dict
         """
-        return self.db.hgetall(self.key)
+        return self.slave_db.hgetall(self.key)
 
     def hvals(self):
         """
@@ -1256,19 +1277,19 @@ class Hash(Container, collections.MutableMapping):
 
         :rtype: list
         """
-        return self.db.hvals(self.key)
+        return self.slave_db.hvals(self.key)
 
     def hget(self, field):
         """
         Returns the value stored in the field, None if the field doesn't exist.
         """
-        return self.db.hget(self.key, field)
+        return self.slave_db.hget(self.key, field)
 
     def hexists(self, field):
         """
         Returns ``True`` if the field exists, ``False`` otherwise.
         """
-        return self.db.hexists(self.key, field)
+        return self.slave_db.hexists(self.key, field)
 
     def hincrby(self, field, increment=1):
         """
@@ -1282,13 +1303,13 @@ class Hash(Container, collections.MutableMapping):
         12L
         >>> h.clear()
         """
-        return self.db.hincrby(self.key, field, increment)
+        return self.master_db.hincrby(self.key, field, increment)
 
     def hmget(self, fields):
         """
         Returns the values stored in the fields.
         """
-        return self.db.hmget(self.key, fields)
+        return self.slave_db.hmget(self.key, fields)
 
     def hmset(self, mapping):
         """
@@ -1296,7 +1317,7 @@ class Hash(Container, collections.MutableMapping):
 
         :param mapping: a dict with keys and values
         """
-        return self.db.hmset(self.key, mapping)
+        return self.master_db.hmset(self.key, mapping)
 
     keys = hkeys
     values = hvals
