@@ -5,7 +5,7 @@ try:
 except ImportError:
     import redis
     default_connection_settings = {
-        'host': '10.100.16.208',
+        'host': '127.0.0.1',
         'port': 6379,
         'db': 0,
     }

@@ -1,6 +1,9 @@
 import time
 from datetime import datetime, date
 from dateutil.tz import tzutc
+
+import redisearch
+
 import redisco
 from redisco.containers import Set, List, SortedSet, NonPersistentList
 from .modelset import ModelSet
@@ -178,6 +181,23 @@ def _initialize_manager(model_class, name, bases, attrs):
             setattr(model_class, attr_name, descriptor)
 
 
+def _initialize_search(model_class):
+    model_class.search = redisearch.Client(
+        model_class.__name__,
+        conn=redisco.get_client() if not model_class._meta['db'] else model_class._meta['db'])
+    search_indices = list()
+    for each in model_class._attributes.values():
+        if each.__class__ in ZINDEXABLE:
+            search_indices.append(redisearch.NumericField(each.name))
+        else:
+            search_indices.append(redisearch.TextField(each.name))
+
+    try:
+        model_class.search.create_index(search_indices)
+    except redisco.redis.ResponseError:
+        pass
+
+
 class ModelOptions(object):
     """Handles options defined in Meta class of the model.
 
@@ -232,6 +252,8 @@ class ModelBase(type):
                 att._target_type = cls
                 _initialize_referenced(model_class, att)
 
+        _initialize_search(cls)
+
         # extra fields which can be appended while .to_dict()
         cls._exports = list()
 
@@ -239,6 +261,7 @@ class ModelBase(type):
 
     def __getitem__(self, id):
         return self.objects.get_by_id(id)
+
 
 class Model(object):
     __metaclass__ = ModelBase
@@ -662,7 +685,10 @@ class Model(object):
                     l.extend([item.redisco_id for item in values])
                 else:
                     l.extend(values)
+
+                h[k] = l.key
         pipeline.execute()
+        self.search.add_document('%s:%s' % (self.__class__.__name__, self.redisco_id), **h)
 
     ##############
     # Membership #
