@@ -1,0 +1,8 @@
+title: Redisco
+description: "A Python Library for Simple Models and Containers Persisted in Redis "
+google_analytics: 
+show_downloads: true
+theme: jekyll-theme-minimal
+
+gems:
+  - jekyll-mentions
