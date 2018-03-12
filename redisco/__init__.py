@@ -1,14 +1,11 @@
 # -*- coding: utf-8 -*-
 default_connection_settings = {}
-try:
-    import redislite as redis
-except ImportError:
-    import redis
-    default_connection_settings = {
-        'host': '127.0.0.1',
-        'port': 6379,
-        'db': 0,
-    }
+import redis
+default_connection_settings = {
+    'host': '127.0.0.1',
+    'port': 6379,
+    'db': 0,
+}
 
 
 class Client(object):
