@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import redis
-from redis.sentinel import Sentinel
+import redis.connection
+from redis.sentinel import Sentinel, SentinelConnectionPool
 
 default_connection_settings = {
     'host': '10.100.16.208',
@@ -9,10 +10,13 @@ default_connection_settings = {
     # list of sentinels
     'sentinels': [('10.100.16.208', 5000), ('10.100.18.167', 5002), ('10.100.16.231', 5001)],
     'sentinel_name': 'master',
+    'socket_timeout': 60,
+    'retry_on_timeout': True
+
 }
 """default settings for redis to connect"""
 
-SENTINEL_SOCKET_TIMEOUT = 0.1
+SENTINEL_SOCKET_TIMEOUT = 60
 
 
 class Client(object):
@@ -28,9 +32,15 @@ class Client(object):
 
     def redis(self):
         if self.sentinel_settings:
-            return Sentinel(self.sentinel_settings, socket_timeout=SENTINEL_SOCKET_TIMEOUT)
+            sentinel = Sentinel(self.sentinel_settings,
+                                socket_timeout=self.connection_settings.get('socket_timeout', SENTINEL_SOCKET_TIMEOUT))
+            pool = SentinelConnectionPool(self.sentinel_name, sentinel,
+                                          host=self.connection_settings.get('host'),
+                                          db=self.connection_settings.get('db'))
         else:
-            return redis.Redis(**self.connection_settings)
+            pool = redis.connection.ConnectionPool(**self.connection_settings)
+
+        return redis.StrictRedis(connection_pool=pool)
 
     def update(self, d):
         self.connection_settings.update(d)

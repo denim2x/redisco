@@ -240,6 +240,7 @@ class ModelBase(type):
     def __getitem__(self, id):
         return self.objects.get_by_id(id)
 
+
 class Model(object):
     __metaclass__ = ModelBase
 
@@ -379,7 +380,7 @@ class Model(object):
         client = self.db
         if isinstance(client, redisco.Sentinel):
             return client.master_for(redisco.client.sentinel_name,
-                                     socket_timeout=redisco.SENTINEL_SOCKET_TIMEOUT)
+                                     **client.sentinel_kwargs)
         else:
             return client
 
@@ -389,7 +390,7 @@ class Model(object):
         client = self.db
         if isinstance(client, redisco.Sentinel):
             return client.slave_for(redisco.client.sentinel_name,
-                                    socket_timeout=redisco.SENTINEL_SOCKET_TIMEOUT)
+                                    **client.sentinel_kwargs)
         else:
             return client
 
@@ -594,7 +595,7 @@ class Model(object):
     @property
     def db(self):
         """Returns the Redis client used by the model."""
-        return redisco.get_client() if not self._meta['db'] else self._meta['db']
+        return self._meta['db'] or redisco.connection
 
     @property
     def errors(self):
@@ -621,8 +622,8 @@ class Model(object):
     @classmethod
     def exists(cls, redisco_id):
         """Checks if the model with id exists."""
-        return bool((cls._meta['db'] or redisco.get_client()).exists(cls._key[str(redisco_id)]) or
-                    (cls._meta['db'] or redisco.get_client()).sismember(cls._key['all'], str(redisco_id)))
+        return bool((cls._meta['db'] or redisco.connection).exists(cls._key[str(redisco_id)]) or
+                    (cls._meta['db'] or redisco.connection).sismember(cls._key['all'], str(redisco_id)))
 
     ###################
     # Private methods #

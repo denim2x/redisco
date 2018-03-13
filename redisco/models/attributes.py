@@ -11,9 +11,9 @@ from redisco.containers import List
 from .exceptions import FieldValidationError, MissingID
 
 __all__ = ['Attribute', 'CharField', 'ListField', 'DateTimeField',
-        'DateField', 'TimeDeltaField', 'ReferenceField', 'Collection',
-        'IntegerField', 'FloatField', 'BooleanField', 'Counter', 'TextDateField',
-        'ZINDEXABLE']
+           'DateField', 'TimeDeltaField', 'ReferenceField', 'Collection',
+           'IntegerField', 'FloatField', 'BooleanField', 'Counter', 'TextDateField',
+           'ZINDEXABLE']
 
 
 class Attribute(object):
@@ -91,7 +91,7 @@ class Attribute(object):
         errors = []
         # type_validation
         if val is not None and not isinstance(val, self.acceptable_types()):
-            errors.append((self.name, 'bad type',))
+            errors.append((self.name, 'bad type %s: expecting type(s) %s, got %s' % (val, self.acceptable_types(), type(val))))
         # validate first standard stuff
         if self.required:
             if val is None or not unicode(val).strip():
@@ -276,6 +276,24 @@ class TextDateField(DateField):
         except ValueError:
             return None
 
+    def typecast_for_storage(self, value):
+        if value is None:
+            return None
+
+        if not isinstance(value, self.acceptable_types()):
+            raise TypeError("%s should be %s object, and not a %s" % (
+                self.acceptable_types(), self.name, type(value)))
+
+        if isinstance(value, date):
+            return "%d" % float(timegm(value.timetuple()))
+        else:
+            return "%d" % float(timegm(datetime.strptime(value, '%Y-%m-%d').timetuple()))
+
+    def value_type(self):
+        return basestring
+
+    def acceptable_types(self):
+        return basestring, date
 
 
 class TimeDeltaField(Attribute):
@@ -388,7 +406,8 @@ class ListField(object):
             else:
                 for item in val:
                     if not isinstance(item, self.value_type()):
-                        errors.append((self.name, 'bad type in list'))
+                        errors.append((self.name, 'bad type in list, required type %s, provided %s' % (
+                            self.value_type(), type(item))))
 
         # validate first standard stuff
         if self.required:
