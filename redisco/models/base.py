@@ -1,6 +1,9 @@
 import time
 from datetime import datetime, date
 from dateutil.tz import tzutc
+
+import redisearch
+
 import redisco
 from redisco.containers import Set, List, SortedSet, NonPersistentList
 from .modelset import ModelSet
@@ -178,6 +181,23 @@ def _initialize_manager(model_class, name, bases, attrs):
             setattr(model_class, attr_name, descriptor)
 
 
+def _initialize_search(model_class):
+    model_class.search = redisearch.Client(
+        model_class.__name__,
+        conn=redisco.get_client() if not model_class._meta['db'] else model_class._meta['db'])
+    search_indices = list()
+    for each in model_class._attributes.values():
+        if each.__class__ in ZINDEXABLE:
+            search_indices.append(redisearch.NumericField(each.name))
+        else:
+            search_indices.append(redisearch.TextField(each.name, sortable=True))
+
+    try:
+        model_class.search.create_index(search_indices)
+    except redisco.redis.ResponseError:
+        pass
+
+
 class ModelOptions(object):
     """Handles options defined in Meta class of the model.
 
@@ -231,6 +251,8 @@ class ModelBase(type):
             if name == target:
                 att._target_type = cls
                 _initialize_referenced(model_class, att)
+
+        _initialize_search(cls)
 
         # extra fields which can be appended while .to_dict()
         cls._exports = list()
@@ -396,7 +418,7 @@ class Model(object):
 
     def delete(self):
         """Deletes the object from the datastore."""
-        pipeline = self.master_db.pipeline()
+        pipeline = self.db.pipeline()
         self._delete_from_indices(pipeline)
         self._delete_membership(pipeline)
         pipeline.delete(self.key())
@@ -428,7 +450,7 @@ class Model(object):
         """
         if att not in self.counters:
             raise ValueError("%s is not a counter.")
-        self.master_db.hincrby(self.key(), att, val)
+        self.db.hincrby(self.key(), att, val)
 
     def decr(self, att, val=1):
         """
@@ -554,7 +576,7 @@ class Model(object):
         Setting the redisco id for the object will fetch it from the datastorage.
         """
         self._redisco_id = str(val)
-        stored_attrs = self.slave_db.hgetall(self.key())
+        stored_attrs = self.db.hgetall(self.key())
         attrs = self.attributes.values()
         for att in attrs:
             if att.name in stored_attrs and not isinstance(att, Counter):
@@ -595,7 +617,7 @@ class Model(object):
     @property
     def db(self):
         """Returns the Redis client used by the model."""
-        return self._meta['db'] or redisco.connection
+        return self._meta['db'] or redisco.get_client()
 
     @property
     def errors(self):
@@ -622,8 +644,8 @@ class Model(object):
     @classmethod
     def exists(cls, redisco_id):
         """Checks if the model with id exists."""
-        return bool((cls._meta['db'] or redisco.connection).exists(cls._key[str(redisco_id)]) or
-                    (cls._meta['db'] or redisco.connection).sismember(cls._key['all'], str(redisco_id)))
+        return bool((cls._meta['db'] or redisco.get_client()).exists(cls._key[str(redisco_id)]) or
+                    (cls._meta['db'] or redisco.get_client()).sismember(cls._key['all'], str(redisco_id)))
 
     ###################
     # Private methods #
@@ -631,7 +653,7 @@ class Model(object):
 
     def _initialize_id(self):
         """Initializes the id of the instance."""
-        self.redisco_id = str(self.master_db.incr(self._key['redisco_id']))
+        self.redisco_id = str(self.db.incr(self._key['redisco_id']))
 
     def _write(self, _new=False):
         """Writes the values of the attributes to the datastore.
@@ -639,7 +661,7 @@ class Model(object):
         This method also creates the indices and saves the lists
         associated to the object.
         """
-        pipeline = self.master_db.pipeline()
+        pipeline = self.db.pipeline()
         self._create_membership(pipeline)
         self._update_indices(pipeline)
         h = {}
@@ -683,7 +705,13 @@ class Model(object):
                     l.extend([item.redisco_id for item in values])
                 else:
                     l.extend(values)
+
+                h[k] = l.key
         pipeline.execute()
+
+        self.search.add_document(
+            '%s:%s' % (self.__class__.__name__, self.redisco_id),
+            replace=True, **h)
 
     ##############
     # Membership #
@@ -746,8 +774,8 @@ class Model(object):
         """Deletes the object's redisco_id from the sets(indices) it has been added
         to and removes its list of indices (used for housekeeping).
         """
-        s = Set(self.key()['_indices'], pipeline=self.master_db)
-        z = Set(self.key()['_zindices'], pipeline=self.master_db)
+        s = Set(self.key()['_indices'], pipeline=self.db)
+        z = Set(self.key()['_zindices'], pipeline=self.db)
         for index in s.members:
             pipeline.srem(index, self.redisco_id)
         for index in z.members:
@@ -869,11 +897,11 @@ class Mutex(object):
     def lock(self):
         o = self.instance
         _lock_key = o.key('_lock')
-        with o.master_db.pipeline() as pipe:
+        with o.db.pipeline() as pipe:
             while True:
                 try:
                     pipe.watch(_lock_key)
-                    if o.master_db.exists(_lock_key) and not self.lock_has_expired(o.db.get(_lock_key)):
+                    if o.db.exists(_lock_key) and not self.lock_has_expired(o.db.get(_lock_key)):
                         continue
 
                     pipe.multi()
@@ -890,7 +918,7 @@ class Mutex(object):
         return float(lock) < time.time()
 
     def unlock(self):
-        self.instance.master_db.delete(self.instance.key('_lock'))
+        self.instance.db.delete(self.instance.key('_lock'))
 
     @property
     def lock_timeout(self):

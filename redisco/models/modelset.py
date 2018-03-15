@@ -9,9 +9,14 @@ from .attributes import ZINDEXABLE
 
 # Model Set
 class ModelSet(Set):
-    def __init__(self, model_class):
+    def __init__(self, model_class, key=None):
         self.model_class = model_class
-        self.key = model_class._key['all']
+
+        if key:
+            self.key = key
+        else:
+            self.key = model_class._key['all']
+
         # We access directly _meta as .db is a property and should be
         # access from an instance, not a Class
         self._db = model_class._meta['db'] or redisco.get_client()
@@ -245,7 +250,8 @@ class ModelSet(Set):
         return self._clone()
 
     def to_dict(self):
-        return [each.to_dict() for each in self.all()]
+        # return [each.to_dict() for each in self.all()]
+        return [self._get_item_with_id(id).to_dict() for id in self._set]
 
     def get_or_create(self, **kwargs):
         """
@@ -402,7 +408,7 @@ class ModelSet(Set):
                 # KEYS is much easier, though good to know, if you are reading this!
                 _indices = [self._build_key_from_filter_item(k, ev) for ev in v]
                 for search_term in _indices:
-                    indices.extend(list(self.slave_db.scan_iter(search_term, 25000)))
+                    indices.extend(list(self.db.scan_iter(search_term, 25000)))
             else:
                 indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
 
@@ -419,13 +425,13 @@ class ModelSet(Set):
             # which has been already filtered
             if _operator == 'and':
                 if not new_set:
-                    s.intersection(new_set_key, *[Set(n, db=self.master_db) for n in indices])
+                    s.intersection(new_set_key, *[Set(n, db=self.db) for n in indices])
                 else:
-                    new_set.intersection(new_set_key, *[Set(n, db=self.master_db) for n in indices])
+                    new_set.intersection(new_set_key, *[Set(n, db=self.db) for n in indices])
             else:
-                s.intersection(new_set_key, *[Set(n, db=self.master_db) for n in indices])
+                s.intersection(new_set_key, *[Set(n, db=self.db) for n in indices])
 
-            new_set = Set(new_set_key, db=self.master_db)
+            new_set = Set(new_set_key, db=self.db)
             new_set.set_expire()
 
         return new_set
@@ -480,7 +486,7 @@ class ModelSet(Set):
                 # KEYS is much easier, though good to know, if you are reading this!
                 _indices = [self._build_key_from_filter_item(k, ev) for ev in v]
                 for search_term in _indices:
-                    indices.extend([e.decode('utf-8') for e in self.slave_db.scan_iter(search_term, 25000)])
+                    indices.extend([e.decode('utf-8') for e in self.db.scan_iter(search_term, 25000)])
             else:
                 indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
 
@@ -490,13 +496,13 @@ class ModelSet(Set):
             # which has been already filtered
             if _operator == 'and':
                 if not new_set:
-                    s.difference(new_set_key, *[Set(n, db=self.master_db) for n in indices])
+                    s.difference(new_set_key, *[Set(n, db=self.db) for n in indices])
                 else:
-                    new_set.difference(new_set_key, *[Set(n, db=self.master_db) for n in indices])
+                    new_set.difference(new_set_key, *[Set(n, db=self.db) for n in indices])
             else:
-                s.difference(new_set_key, *[Set(n, db=self.master_db) for n in indices])
+                s.difference(new_set_key, *[Set(n, db=self.db) for n in indices])
 
-            new_set = Set(new_set_key, db=self.master_db)
+            new_set = Set(new_set_key, db=self.db)
             new_set.set_expire()
 
         return new_set
@@ -517,7 +523,7 @@ class ModelSet(Set):
             raise ValueError("zfilter should have an operator.")
         index = self.model_class._key[att]
         desc = self.model_class._attributes[att]
-        zset = SortedSet(index, db=self.master_db)
+        zset = SortedSet(index, db=self.db)
         limit, offset = self._get_limit_and_offset()
         new_set_key = "~%s.%s" % ("+".join([self.key, att, op]), id(self))
         new_set_key_temp = "#%s.%s" % ("+".join([self.key, att, op]), id(self))
@@ -578,16 +584,16 @@ class ModelSet(Set):
                 desc = False
             new_set_key = "%s#%s.%s" % (old_set_key, ordering, id(self))
             by = "%s->%s" % (self.model_class._key['*'], ordering)
-            self.master_db.sort(old_set_key,
-                                by=by,
-                                store=new_set_key,
-                                alpha=alpha,
-                                start=start,
-                                num=num,
-                                desc=desc)
+            self.db.sort(old_set_key,
+                         by=by,
+                         store=new_set_key,
+                         alpha=alpha,
+                         start=start,
+                         num=num,
+                         desc=desc)
             if old_set_key != self.key:
-                Set(old_set_key, db=self.master_db).set_expire()
-            new_list = List(new_set_key, db=self.master_db)
+                Set(old_set_key, db=self.db).set_expire()
+            new_list = List(new_set_key, db=self.db)
             new_list.set_expire()
             return new_list
 
@@ -602,13 +608,13 @@ class ModelSet(Set):
         num, start = self._get_limit_and_offset()
         old_set_key = skey
         new_set_key = "%s#.%s" % (old_set_key, id(self))
-        self.master_db.sort(old_set_key,
-                            store=new_set_key,
-                            start=start,
-                            num=num)
+        self.db.sort(old_set_key,
+                     store=new_set_key,
+                     start=start,
+                     num=num)
         if old_set_key != self.key:
-            Set(old_set_key, db=self.master_db).set_expire()
-        new_list = List(new_set_key, db=self.master_db)
+            Set(old_set_key, db=self.db).set_expire()
+        new_list = List(new_set_key, db=self.db)
         new_list.set_expire()
         return new_list
 
@@ -618,12 +624,12 @@ class ModelSet(Set):
         """
         if (self._limit is not None and self._offset is None) or \
                 (self._limit is None and self._offset is not None):
-                    raise "Limit and offset must be specified"
+                    raise Exception("Limit and offset must be specified")
 
         if self._limit is None:
-            return (None, None)
+            return None, None
         else:
-            return (self._limit, self._offset)
+            return self._limit, self._offset
 
     def _get_item_with_id(self, id):
         """

@@ -67,14 +67,14 @@ class Attribute(object):
     def typecast_for_read(self, value):
         """Typecasts the value for reading from Redis."""
         # The redis client encodes all unicode data to utf-8 by default.
-        if value == '':
+        if value in ['null', '', None]:
             return None
         return value.decode('utf-8')
 
     def typecast_for_storage(self, value):
         """Typecasts the value for storing to Redis."""
         if value is None:
-            return u''
+            return u'null'
         try:
             return unicode(value)
         except UnicodeError:
@@ -212,7 +212,7 @@ class DateTimeField(Attribute):
 
     def typecast_for_storage(self, value):
         if value is None:
-            return None
+            return 'null'
 
         if not isinstance(value, datetime):
             raise TypeError("%s should be datetime object, and not a %s" %
@@ -249,7 +249,7 @@ class DateField(Attribute):
 
     def typecast_for_storage(self, value):
         if value is None:
-            return None
+            return 'null'
 
         if not isinstance(value, date):
             raise TypeError("%s should be date object, and not a %s" %
@@ -278,7 +278,7 @@ class TextDateField(DateField):
 
     def typecast_for_storage(self, value):
         if value is None:
-            return None
+            return 'null'
 
         if not isinstance(value, self.acceptable_types()):
             raise TypeError("%s should be %s object, and not a %s" % (
@@ -324,7 +324,7 @@ class TimeDeltaField(Attribute):
 
     def typecast_for_storage(self, value):
         if value is None:
-            return None
+            return 'null'
 
         if not isinstance(value, timedelta):
             raise TypeError("%s should be timedelta object, and not a %s" %
