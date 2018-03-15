@@ -663,7 +663,7 @@ class Model(object):
         """
         pipeline = self.db.pipeline()
         self._create_membership(pipeline)
-        self._update_indices(pipeline)
+        # self._update_indices(pipeline)
         h = {}
         # attributes
         for k, v in self.attributes.iteritems():
@@ -691,9 +691,9 @@ class Model(object):
                         h[index] = unicode(v)
                     except UnicodeError:
                         h[index] = unicode(v.decode('utf-8'))
-        pipeline.delete(self.key())
-        if h:
-            pipeline.hmset(self.key(), h)
+        # pipeline.delete(self.key())
+        # if h:
+        #     pipeline.hmset(self.key(), h)
 
         # lists
         for k, v in self.lists.iteritems():

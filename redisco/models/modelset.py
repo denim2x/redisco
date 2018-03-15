@@ -1,6 +1,8 @@
 """
 Handles the queries.
 """
+import redisearch
+
 from .attributes import IntegerField, DateTimeField
 import redisco
 from redisco.containers import SortedSet, Set, List, NonPersistentList
@@ -360,6 +362,69 @@ class ModelSet(Set):
         return self._cached_set
 
     def _add_set_filter(self, s):
+
+        search_client = self.model_class.search
+        _operator = self._filters.pop('_operator', 'and')
+
+        queries = []
+        indices = []
+        for k, v in self._filters.iteritems():
+
+            # check if we have double underscores in key, if it exists
+            # we need to handle it by searching keys rather than indices
+            try:
+                k, key_operator = k.split('__')
+            except ValueError:
+                key_operator = None
+
+            if k not in self.model_class._indices:  #noqa
+                raise AttributeNotIndexed(
+                        "Attribute %s is not indexed in %s class." %
+                        (k, self.model_class.__name__))
+
+            if not isinstance(v, (list, tuple)):
+                v = [v]
+
+            # check if we have key_operator, if we do need to go long route
+            # and build the indices differently
+            # XXX: optimise this!!
+            if key_operator:
+                if key_operator == 'endswith':
+                    v = map(lambda val: '*%s' % val, v)
+                elif key_operator == 'startswith':
+                    v = map(lambda val: '%s*' % val, v)
+                elif key_operator == 'contains':
+                    v = map(lambda val: '*%s*' % val, v)
+                else:
+                    raise FilterOperatorError('Filter operator must be one of [endswith, startswith, contains]')
+
+            indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
+            index_query = []
+            for ev in v:
+                if isinstance(ev, int):
+                    index_query.append('@%s:[%s %s]' % (k, ev, ev))
+                else:
+                    queries.append('@%s:(%s)' % (k, ' | '.join(v)))
+                    break
+
+            if index_query:
+                queries.append(' | '.join(index_query))
+
+        separator = ' ' if _operator == 'and' else ' | '
+        query = redisearch.Query(separator.join(queries))
+        query = query.return_fields('redisco_id').paging(0, 100000)
+        result = search_client.search(query)
+        if len(result.docs) > 0:
+            ids = [each.redisco_id for each in result.docs]
+            new_set_key = "~%s.%s" % ("+".join([self.key] + indices), id(self))
+            s = Set(new_set_key, db=self.db)
+            s.sadd(ids)
+            s.set_expire()
+            return s
+
+        return Set('', self.db)
+
+    def _add_set_filter1(self, s):
         """
         This function is the internal of the `filter` function.
         It simply creates a new "intersection" of indexed keys (the filter) and
