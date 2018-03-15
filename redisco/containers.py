@@ -5,6 +5,7 @@ that persist directly in a Redis server.
 
 import collections
 from functools import partial
+import redisco
 from . import default_expire_time
 
 
@@ -243,7 +244,7 @@ class Set(Container):
         :rtype: ``Set``
 
         >>> s1 = Set('key1')
-        >>> s2 = Set('key2')
+        >>> s2 = Set('key2')q
         >>> s1.add(['a', 'b', 'c'])
         3
         >>> s2.add(['d', 'e'])
@@ -753,7 +754,7 @@ class TypedList(object):
 
     def typecast_stor(self, value):
         if self._redisco_model:
-            return value.id
+            return value.redisco_id
         else:
             return value
 

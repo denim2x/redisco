@@ -9,9 +9,14 @@ from .attributes import ZINDEXABLE
 
 # Model Set
 class ModelSet(Set):
-    def __init__(self, model_class):
+    def __init__(self, model_class, key=None):
         self.model_class = model_class
-        self.key = model_class._key['all']
+
+        if key:
+            self.key = key
+        else:
+            self.key = model_class._key['all']
+
         # We access directly _meta as .db is a property and should be
         # access from an instance, not a Class
         self._db = model_class._meta['db'] or redisco.get_client()
@@ -245,7 +250,8 @@ class ModelSet(Set):
         return self._clone()
 
     def to_dict(self):
-        return [each.to_dict() for each in self.all()]
+        # return [each.to_dict() for each in self.all()]
+        return [self._get_item_with_id(id).to_dict() for id in self._set]
 
     def get_or_create(self, **kwargs):
         """
@@ -300,6 +306,26 @@ class ModelSet(Set):
     @property
     def db(self):
         return self._db
+
+    @property
+    def master_db(self):
+        """Returns master redis client, if Sentinel is enabled, else returns db"""
+        client = self.db
+        if isinstance(client, redisco.Sentinel):
+            return client.master_for(redisco.client.sentinel_name,
+                                     socket_timeout=redisco.SENTINEL_SOCKET_TIMEOUT)
+        else:
+            return client
+
+    @property
+    def slave_db(self):
+        """Returns slave redis client, if Sentinel is enabled, else returns db"""
+        client = self.db
+        if isinstance(client, redisco.Sentinel):
+            return client.slave_for(redisco.client.sentinel_name,
+                                    socket_timeout=redisco.SENTINEL_SOCKET_TIMEOUT)
+        else:
+            return client
 
     def refresh(self):
         """Refreshesh current model set. Useful if filtered set is expired and want to recreate it"""
@@ -481,20 +507,6 @@ class ModelSet(Set):
 
         return new_set
 
-        # indices = []
-        # for k, v in self._exclusions.iteritems():
-        #     index = self._build_key_from_filter_item(k, v)
-        #     if k not in self.model_class._indices:
-        #         raise AttributeNotIndexed(
-        #                 "Attribute %s is not indexed in %s class." %
-        #                 (k, self.model_class.__name__))
-        #     indices.append(index)
-        # new_set_key = "~%s.%s" % ("-".join([self.key] + indices), id(self))
-        # s.difference(new_set_key, *[Set(n, db=self.db) for n in indices])
-        # new_set = Set(new_set_key, db=self.db)
-        # new_set.set_expire()
-        # return new_set
-
     def _add_zfilters(self, s):
         """
         This function is the internals of the zfilter function.
@@ -612,12 +624,12 @@ class ModelSet(Set):
         """
         if (self._limit is not None and self._offset is None) or \
                 (self._limit is None and self._offset is not None):
-                    raise "Limit and offset must be specified"
+                    raise Exception("Limit and offset must be specified")
 
         if self._limit is None:
-            return (None, None)
+            return None, None
         else:
-            return (self._limit, self._offset)
+            return self._limit, self._offset
 
     def _get_item_with_id(self, id):
         """

@@ -190,7 +190,7 @@ def _initialize_search(model_class):
         if each.__class__ in ZINDEXABLE:
             search_indices.append(redisearch.NumericField(each.name))
         else:
-            search_indices.append(redisearch.TextField(each.name))
+            search_indices.append(redisearch.TextField(each.name, sortable=True))
 
     try:
         model_class.search.create_index(search_indices)
@@ -396,6 +396,26 @@ class Model(object):
         else:
             return self._key[self.redisco_id]
 
+    @property
+    def master_db(self):
+        """Returns master redis client, if Sentinel is enabled, else returns db"""
+        client = self.db
+        if isinstance(client, redisco.Sentinel):
+            return client.master_for(redisco.client.sentinel_name,
+                                     **client.sentinel_kwargs)
+        else:
+            return client
+
+    @property
+    def slave_db(self):
+        """Returns slave redis client, if Sentinel is enabled, else returns db"""
+        client = self.db
+        if isinstance(client, redisco.Sentinel):
+            return client.slave_for(redisco.client.sentinel_name,
+                                    **client.sentinel_kwargs)
+        else:
+            return client
+
     def delete(self):
         """Deletes the object from the datastore."""
         pipeline = self.db.pipeline()
@@ -597,7 +617,7 @@ class Model(object):
     @property
     def db(self):
         """Returns the Redis client used by the model."""
-        return redisco.get_client() if not self._meta['db'] else self._meta['db']
+        return self._meta['db'] or redisco.get_client()
 
     @property
     def errors(self):
@@ -688,7 +708,10 @@ class Model(object):
 
                 h[k] = l.key
         pipeline.execute()
-        self.search.add_document('%s:%s' % (self.__class__.__name__, self.redisco_id), **h)
+
+        self.search.add_document(
+            '%s:%s' % (self.__class__.__name__, self.redisco_id),
+            replace=True, **h)
 
     ##############
     # Membership #
