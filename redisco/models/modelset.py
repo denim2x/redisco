@@ -361,14 +361,11 @@ class ModelSet(Set):
         self._cached_set = n
         return self._cached_set
 
-    def _add_set_filter(self, s):
-
-        search_client = self.model_class.search
-        _operator = self._filters.pop('_operator', 'and')
-
+    def _generate_query(self, operator='and', exclude=False, **kwargs):
+        """Generate query objects from the filters"""
         queries = []
         indices = []
-        for k, v in self._filters.iteritems():
+        for k, v in kwargs.iteritems():
 
             # check if we have double underscores in key, if it exists
             # we need to handle it by searching keys rather than indices
@@ -382,8 +379,16 @@ class ModelSet(Set):
                         "Attribute %s is not indexed in %s class." %
                         (k, self.model_class.__name__))
 
+            if isinstance(v, set):
+                v = list(v)
+
             if not isinstance(v, (list, tuple)):
                 v = [v]
+
+            # handle None
+            while v.count(None):
+                indx = v.index(None)
+                v[indx] = 'null'
 
             # check if we have key_operator, if we do need to go long route
             # and build the indices differently
@@ -399,30 +404,73 @@ class ModelSet(Set):
                     raise FilterOperatorError('Filter operator must be one of [endswith, startswith, contains]')
 
             indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
-            index_query = []
-            for ev in v:
-                if isinstance(ev, int):
-                    index_query.append('@%s:[%s %s]' % (k, ev, ev))
+
+            # check if we need to handle typecasting in case
+            # of current value in actually belongs with number family
+            is_number = self.model_class._attributes[k].__class__ in ZINDEXABLE
+            if is_number:
+                index_query = []
+                for ev in v:
+                    val = self.model_class._attributes[k].typecast_for_storage(ev)
+                    kq = '@%s:[%s %s]' % (k, val, val)
+                    if exclude:
+                        kq = '-' + kq
+                    index_query.append(kq)
+                if index_query:
+                    queries.append(' | '.join(index_query))
+            else:
+                v = [self.model_class._attributes[k].typecast_for_storage(ev) for ev in v]
+                if exclude:
+                    queries.append('-@%s:(%s)' % (k, ' | '.join(v)))
                 else:
                     queries.append('@%s:(%s)' % (k, ' | '.join(v)))
-                    break
 
-            if index_query:
-                queries.append(' | '.join(index_query))
+        separator = ' ' if operator == 'and' else ' | '
 
-        separator = ' ' if _operator == 'and' else ' | '
         query = redisearch.Query(separator.join(queries))
         query = query.return_fields('redisco_id').paging(0, 100000)
+
+        return query, indices
+
+    def _search(self, s=None, exclude=False, **filters):
+
+        search_client = self.model_class.search
+        _operator = self._filters.pop('_operator', 'and')
+
+        query, indices = self._generate_query(_operator, exclude=exclude, **filters)
+
+        # narrow the search query within the limits of our modelset's key
+        # get the members from the s?
+        if s:
+            # check if s length is not same as models's data
+            members = ['%s:%s' % (search_client.index_name, i) for i in s.members]
+            query = query.limit_ids(*members)
+
         result = search_client.search(query)
         if len(result.docs) > 0:
             ids = [each.redisco_id for each in result.docs]
             new_set_key = "~%s.%s" % ("+".join([self.key] + indices), id(self))
-            s = Set(new_set_key, db=self.db)
-            s.sadd(ids)
-            s.set_expire()
-            return s
+            n = Set(new_set_key, db=self.db)
+            n.sadd(ids)
+            n.set_expire()
+            return n
 
         return Set('', self.db)
+
+    def _add_set_filter(self, s):
+        return self._search(s, exclude=False, **self._filters)
+
+    def _add_set_exclusions(self, s):
+        """
+        This function is the internals of the `filter` function.
+        It simply creates a new "difference" of indexed keys (the filter) and
+        the previous filtered keys (if any).
+
+        .. Note:: This function uses the ``Set`` container class.
+
+        :return: th
+        """
+        return self._search(s, exclude=True, **self._exclusions)
 
     def _add_set_filter1(self, s):
         """
@@ -501,7 +549,7 @@ class ModelSet(Set):
 
         return new_set
 
-    def _add_set_exclusions(self, s):
+    def _add_set_exclusions1(self, s):
         """
         This function is the internals of the `filter` function.
         It simply creates a new "difference" of indexed keys (the filter) and

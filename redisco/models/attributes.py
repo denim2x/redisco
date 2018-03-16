@@ -73,7 +73,7 @@ class Attribute(object):
 
     def typecast_for_storage(self, value):
         """Typecasts the value for storing to Redis."""
-        if value is None:
+        if value in [None, 'null']:
             return u'null'
         try:
             return unicode(value)
@@ -149,7 +149,7 @@ class BooleanField(Attribute):
         return bool(int(value))
 
     def typecast_for_storage(self, value):
-        if value is None:
+        if value in [None, 'null']:
             return "0"
         return "1" if value else "0"
 
@@ -165,7 +165,7 @@ class IntegerField(Attribute):
         return int(value)
 
     def typecast_for_storage(self, value):
-        if value is None:
+        if value in [None, 'null']:
             return "0"
         return unicode(value)
 
@@ -181,8 +181,9 @@ class FloatField(Attribute):
         return float(value)
 
     def typecast_for_storage(self, value):
-        if value is None:
+        if value in [None, 'null']:
             return "0"
+
         return "%f" % value
 
     def value_type(self):
@@ -211,7 +212,7 @@ class DateTimeField(Attribute):
             return None
 
     def typecast_for_storage(self, value):
-        if value is None:
+        if value in [None, 'null']:
             return 'null'
 
         if not isinstance(value, datetime):
@@ -248,7 +249,7 @@ class DateField(Attribute):
             return None
 
     def typecast_for_storage(self, value):
-        if value is None:
+        if value in [None, 'null']:
             return 'null'
 
         if not isinstance(value, date):
@@ -277,7 +278,7 @@ class TextDateField(DateField):
             return None
 
     def typecast_for_storage(self, value):
-        if value is None:
+        if value in [None, 'null']:
             return 'null'
 
         if not isinstance(value, self.acceptable_types()):
@@ -323,7 +324,7 @@ class TimeDeltaField(Attribute):
             return None
 
     def typecast_for_storage(self, value):
-        if value is None:
+        if value in [None, 'null']:
             return 'null'
 
         if not isinstance(value, timedelta):
