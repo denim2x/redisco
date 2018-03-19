@@ -423,6 +423,8 @@ class Model(object):
         self._delete_membership(pipeline)
         pipeline.delete(self.key())
         pipeline.execute()
+        self.search.delete_document(
+            '%s:%s' % (self.__class__.__name__, self.redisco_id))
 
     def is_new(self):
         """

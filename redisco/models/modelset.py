@@ -1,6 +1,11 @@
 """
 Handles the queries.
 """
+import logging
+import logging.handlers
+
+logger = logging.getLogger('shredis')
+
 import redisearch
 
 from .attributes import IntegerField, DateTimeField
@@ -390,6 +395,12 @@ class ModelSet(Set):
                 indx = v.index(None)
                 v[indx] = 'null'
 
+            # handle any ':' in values
+            for indx, cv in enumerate(v):
+                if isinstance(cv, basestring):
+                    cv = cv.replace(':', r'\:')
+                    v[indx] = cv
+
             # check if we have key_operator, if we do need to go long route
             # and build the indices differently
             # XXX: optimise this!!
@@ -412,7 +423,10 @@ class ModelSet(Set):
                 index_query = []
                 for ev in v:
                     val = self.model_class._attributes[k].typecast_for_storage(ev)
-                    kq = '@%s:[%s %s]' % (k, val, val)
+                    if val != 'null':
+                        kq = '@%s:[%s %s]' % (k, val, val)
+                    else:
+                        kq = '@%s:%s' % (k, val)
                     if exclude:
                         kq = '-' + kq
                     index_query.append(kq)
@@ -441,11 +455,12 @@ class ModelSet(Set):
 
         # narrow the search query within the limits of our modelset's key
         # get the members from the s?
-        if s:
-            # check if s length is not same as models's data
-            members = ['%s:%s' % (search_client.index_name, i) for i in s.members]
-            query = query.limit_ids(*members)
+        # if s:
+        #     # check if s length is not same as models's data
+        #     members = ['%s:%s' % (search_client.index_name, i) for i in s.members]
+        #     query = query.limit_ids(*members)
 
+        logger.debug('XXX: %s' % query.get_args())
         result = search_client.search(query)
         if len(result.docs) > 0:
             ids = [each.redisco_id for each in result.docs]
