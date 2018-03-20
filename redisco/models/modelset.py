@@ -129,6 +129,17 @@ class ModelSet(Set):
     # METHODS THAT MODIFY THE MODEL SET #
     #####################################
 
+    def paging(self, offset, limit):
+        """
+        Set limit while filtering the data
+
+        :param offset: start filtering from nth index
+        :param limit: till nth element
+        :return: None
+        """
+        self._limit = limit
+        self._offset = offset
+
     def filter(self, **kwargs):
         """
         Filter a collection on criteria
@@ -369,7 +380,6 @@ class ModelSet(Set):
     def _generate_query(self, operator='and', exclude=False, **kwargs):
         """Generate query objects from the filters"""
         queries = []
-        indices = []
         for k, v in kwargs.iteritems():
 
             # check if we have double underscores in key, if it exists
@@ -414,8 +424,6 @@ class ModelSet(Set):
                 else:
                     raise FilterOperatorError('Filter operator must be one of [endswith, startswith, contains]')
 
-            indices.extend([self._build_key_from_filter_item(k, ev) for ev in v])
-
             # check if we need to handle typecasting in case
             # of current value in actually belongs with number family
             is_number = self.model_class._attributes[k].__class__ in ZINDEXABLE
@@ -431,40 +439,47 @@ class ModelSet(Set):
                         kq = '-' + kq
                     index_query.append(kq)
                 if index_query:
-                    queries.append(' | '.join(index_query))
+                    queries.append('|'.join(index_query))
             else:
                 v = [self.model_class._attributes[k].typecast_for_storage(ev) for ev in v]
                 if exclude:
-                    queries.append('-@%s:(%s)' % (k, ' | '.join(v)))
+                    queries.append('(-@%s:(%s))' % (k, '|'.join(v)))
                 else:
-                    queries.append('@%s:(%s)' % (k, ' | '.join(v)))
+                    queries.append('(@%s:(%s))' % (k, '|'.join(v)))
 
-        separator = ' ' if operator == 'and' else ' | '
+        separator = ' ' if operator == 'and' else '|'
 
         query = redisearch.Query(separator.join(queries))
-        query = query.return_fields('redisco_id').paging(0, 100000)
+        query = query.return_fields('redisco_id')
 
-        return query, indices
+        return query
 
     def _search(self, s=None, exclude=False, **filters):
 
         search_client = self.model_class.search
         _operator = self._filters.pop('_operator', 'and')
 
-        query, indices = self._generate_query(_operator, exclude=exclude, **filters)
+        query = self._generate_query(_operator, exclude=exclude, **filters)
 
         # narrow the search query within the limits of our modelset's key
         # get the members from the s?
-        # if s:
-        #     # check if s length is not same as models's data
-        #     members = ['%s:%s' % (search_client.index_name, i) for i in s.members]
-        #     query = query.limit_ids(*members)
+        if s:
+            # check if s length is not same as models's data
+            members = ['%s:%s' % (search_client.index_name, i) for i in s.members]
+            query = query.limit_ids(*members)
 
-        logger.debug('XXX: %s' % query.get_args())
+        query = query.return_fields('redisco_id')
+
+        # get the limits and offset
+        if self._offset and self._limit:
+            query = query.paging(self._offset, self._limit)
+        else:
+            query = query.paging(0, 100000)
+
         result = search_client.search(query)
         if len(result.docs) > 0:
             ids = [each.redisco_id for each in result.docs]
-            new_set_key = "~%s.%s" % ("+".join([self.key] + indices), id(self))
+            new_set_key = "~%s.%s" % ("+".join(ids), id(self))
             n = Set(new_set_key, db=self.db)
             n.sadd(ids)
             n.set_expire()
